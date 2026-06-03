@@ -1,11 +1,12 @@
 //! The public [`Portfolio`] facade: stores an immutable ledger and answers
 //! cost-basis, income, holdings, valuation, and tax-report queries.
 
+use chrono::Datelike;
 use crate::engine::{run, Strategy};
 use crate::error::PortfolioError;
 use crate::lot::Lot;
 use crate::method::{CostBasisMethod, LotSelection};
-use crate::report::{AssetValuation, Holding, IncomeEvent, PortfolioReport, RealizedGain};
+use crate::report::{AssetValuation, CapitalGainsReport, Holding, IncomeEvent, IncomeReport, PortfolioReport, RealizedGain, Term};
 use crate::transaction::Transaction;
 use rust_decimal::Decimal;
 use std::collections::{BTreeMap, HashMap};
@@ -150,6 +151,56 @@ impl Portfolio {
             missing_prices,
         })
     }
+
+    /// Form-8949-shaped capital-gains report for one calendar tax year (UTC),
+    /// under an automatic method. Use
+    /// [`Portfolio::capital_gains_report_with_selection`] for Specific-ID.
+    pub fn capital_gains_report(
+        &self,
+        method: CostBasisMethod,
+        tax_year: i32,
+    ) -> Result<CapitalGainsReport, PortfolioError> {
+        if method == CostBasisMethod::SpecificId {
+            return Err(PortfolioError::SelectionRequired);
+        }
+        let realized = self.realized_gains(method)?;
+        Ok(Self::build_gains_report(realized, tax_year))
+    }
+
+    /// Capital-gains report using a Specific-ID selection.
+    pub fn capital_gains_report_with_selection(
+        &self,
+        selection: &LotSelection,
+        tax_year: i32,
+    ) -> Result<CapitalGainsReport, PortfolioError> {
+        let realized = self.realized_gains_with_selection(selection)?;
+        Ok(Self::build_gains_report(realized, tax_year))
+    }
+
+    fn build_gains_report(realized: Vec<RealizedGain>, tax_year: i32) -> CapitalGainsReport {
+        let rows: Vec<RealizedGain> =
+            realized.into_iter().filter(|r| r.disposed_at.year() == tax_year).collect();
+        let mut short_term_gain = Decimal::ZERO;
+        let mut long_term_gain = Decimal::ZERO;
+        let mut total_gain = Decimal::ZERO;
+        for r in &rows {
+            total_gain += r.gain;
+            match r.term {
+                Some(Term::Short) => short_term_gain += r.gain,
+                Some(Term::Long) => long_term_gain += r.gain,
+                None => {} // Average: untermed; counted only in total_gain.
+            }
+        }
+        CapitalGainsReport { tax_year, rows, short_term_gain, long_term_gain, total_gain }
+    }
+
+    /// Ordinary-income report for one calendar tax year (UTC).
+    pub fn income_report(&self, tax_year: i32) -> IncomeReport {
+        let events: Vec<IncomeEvent> =
+            self.income_events().into_iter().filter(|e| e.received_at.year() == tax_year).collect();
+        let total_income = events.iter().map(|e| e.value).sum();
+        IncomeReport { tax_year, events, total_income }
+    }
 }
 
 #[cfg(test)]
@@ -242,5 +293,41 @@ mod tests {
         assert_eq!(btc.allocation, dec!(1)); // only priced asset
         assert_eq!(r.total_value, dec!(400));
         assert_eq!(r.missing_prices, vec!["eth".to_string()]);
+    }
+
+    #[test]
+    fn capital_gains_report_filters_year_and_splits_terms() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2019, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(2), unit_price: dec!(100), fee: dec!(0) },
+            // Long-term sale in 2021 (held > 1y): gain 400.
+            Transaction::Sell { timestamp: ts(2021, 3, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+            // Short-term: buy and sell within 2021: basis 100, proceeds 130 -> gain 30.
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "eth".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Sell { timestamp: ts(2021, 6, 1), wallet: "w".into(), asset: "eth".into(),
+                quantity: dec!(1), unit_price: dec!(130), fee: dec!(0) },
+        ];
+        let p = Portfolio::from_transactions(&txs).unwrap();
+        let r = p.capital_gains_report(CostBasisMethod::Fifo, 2021).unwrap();
+        assert_eq!(r.rows.len(), 2);
+        assert_eq!(r.long_term_gain, dec!(400));
+        assert_eq!(r.short_term_gain, dec!(30));
+        assert_eq!(r.total_gain, dec!(430));
+    }
+
+    #[test]
+    fn income_report_filters_year() {
+        let txs = vec![
+            Transaction::Income { timestamp: ts(2020, 5, 1), wallet: "w".into(), asset: "eth".into(),
+                quantity: dec!(1), value: dec!(40), source: crate::transaction::IncomeSource::Staking },
+            Transaction::Income { timestamp: ts(2021, 5, 1), wallet: "w".into(), asset: "eth".into(),
+                quantity: dec!(1), value: dec!(60), source: crate::transaction::IncomeSource::Airdrop },
+        ];
+        let p = Portfolio::from_transactions(&txs).unwrap();
+        let r = p.income_report(2021);
+        assert_eq!(r.events.len(), 1);
+        assert_eq!(r.total_income, dec!(60));
     }
 }
