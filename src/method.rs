@@ -1,4 +1,9 @@
 //! Cost-basis method selection and lot ordering.
+//!
+//! [`CostBasisMethod`] selects how disposals are matched to open lots. Under
+//! [`CostBasisMethod::SpecificId`] the caller supplies a [`LotSelection`]
+//! (a map from a disposal's original input index to the [`LotPick`]s it
+//! consumes).
 
 use crate::lot::Lot;
 use rust_decimal::Decimal;

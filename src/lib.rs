@@ -24,6 +24,32 @@
 //! assert_eq!(gains[0].gain, Decimal::new(400, 0));
 //! ```
 //!
+//! # Concepts
+//!
+//! - **Ledger in, reports out.** You build a [`Portfolio`] from a `Vec` of
+//!   [`Transaction`]s (in the order they occurred) and query it. The crate
+//!   replays the ledger internally; it stores no mutable state and performs no
+//!   I/O.
+//! - **Cost-basis methods.** Disposals are matched to open lots by
+//!   [`CostBasisMethod`]: `Fifo`, `Lifo`, `Hifo`, `Average`, or `SpecificId`
+//!   (where you name the lots via a [`LotSelection`]). The same ledger yields
+//!   different realized gains under different methods.
+//! - **Per-wallet lots.** Lots are pooled per `(asset, wallet)`. A disposal can
+//!   only draw from the wallet it names; transfers move lots between wallets
+//!   while preserving basis and the holding-period clock.
+//! - **Holding period.** Each realized lot is classified [`Term::Short`] or
+//!   [`Term::Long`] at a 365-day boundary.
+//! - **Gifts use the IRS dual-basis rule.** A received gift inherits the donor's
+//!   basis for gains, the lesser of (donor basis, FMV at receipt) for losses,
+//!   and realizes nothing in between.
+//!
+//! # Examples
+//!
+//! Runnable examples live in the `examples/` directory — start with
+//! `cargo run --example quickstart`, then `cost_basis_methods`,
+//! `wallet_transfers`, `gifts`, `tax_reports`, `valuation`, and
+//! `portfolio_stats`.
+//!
 //! # Not tax advice
 //! `coinbasis` is a calculation library. It does not file taxes, give legal
 //! advice, or guarantee conformance with any jurisdiction's rules. The default

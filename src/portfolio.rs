@@ -1,5 +1,10 @@
 //! The public [`Portfolio`] facade: stores an immutable ledger and answers
 //! cost-basis, income, holdings, valuation, and tax-report queries.
+//!
+//! Build one with [`Portfolio::from_transactions`], then call a query under a
+//! chosen [`crate::CostBasisMethod`]. Automatic methods use the plain query
+//! methods; [`crate::CostBasisMethod::SpecificId`] uses the `*_with_selection`
+//! variants (the others return [`crate::PortfolioError::SelectionRequired`]).
 
 use crate::engine::{run, Strategy};
 use crate::error::PortfolioError;

@@ -1,4 +1,10 @@
 //! The transaction event model fed into a [`crate::Portfolio`].
+//!
+//! [`Transaction`] is the single input type: each variant is one ledger event
+//! (buy, sell, crypto-to-crypto trade, income, spend, wallet transfer, or
+//! gift). All monetary fields are [`rust_decimal::Decimal`] in one quote
+//! currency (USD by convention). [`Transaction::validate`] checks field-level
+//! invariants; lot-availability errors surface later during replay.
 
 use crate::error::PortfolioError;
 use chrono::{DateTime, Utc};

@@ -1,4 +1,9 @@
 //! Public output types: realized gains, income, holdings, valuations, reports.
+//!
+//! Query methods on [`crate::Portfolio`] return these: [`RealizedGain`] rows
+//! (classified [`Term::Short`]/[`Term::Long`]), [`IncomeEvent`]s, [`Holding`]s,
+//! a [`PortfolioReport`] of [`AssetValuation`]s, and the per-tax-year
+//! [`CapitalGainsReport`] and [`IncomeReport`].
 
 use crate::transaction::IncomeSource;
 use chrono::{DateTime, Duration, Utc};
