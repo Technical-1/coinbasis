@@ -1,5 +1,9 @@
 # coinbasis
 
+[![crates.io](https://img.shields.io/crates/v/coinbasis.svg)](https://crates.io/crates/coinbasis)
+[![docs.rs](https://docs.rs/coinbasis/badge.svg)](https://docs.rs/coinbasis)
+[![license](https://img.shields.io/crates/l/coinbasis.svg)](#license)
+
 Comprehensive crypto **tax-lot cost-basis accounting** as a pure Rust library.
 
 Feed it a ledger of transactions (buys, sells, crypto-to-crypto trades, income,
@@ -11,13 +15,24 @@ the data.
 ## Features
 
 - Cost-basis methods: **FIFO, LIFO, HIFO, Average, Specific-ID**
-- **Per-wallet** lot pools (US 2025 per-account rule); transfers preserve basis
-  and the holding-period clock
+- **Per-wallet** lot pools (US per-account rule); transfers preserve basis and
+  the holding-period clock
 - Crypto-to-crypto **trades**, **income** (staking/mining/airdrop/interest),
   **spends**, and **gifts** with the full IRS **dual-basis** rule
 - Holding-period (short/long-term) classification
 - Form-8949-shaped capital-gains report + income report, filtered by tax year
 - Exact decimal math (`rust_decimal`) — never floats for money
+- Optional `serde` support on every public type
+
+## Install
+
+```toml
+[dependencies]
+coinbasis = "0.1"
+
+# with serialization (Serialize/Deserialize on all public types):
+coinbasis = { version = "0.1", features = ["serde"] }
+```
 
 ## Quickstart
 
@@ -40,6 +55,21 @@ let gains = portfolio.realized_gains(CostBasisMethod::Fifo).unwrap();
 assert_eq!(gains[0].gain, dec!(400));
 ```
 
+## Examples
+
+Runnable, self-contained examples live in [`examples/`](examples). Run any with
+`cargo run --example <name>`:
+
+| Example | What it shows |
+|---------|---------------|
+| `quickstart` | One buy and sell; a realized gain under FIFO |
+| `cost_basis_methods` | The same ledger through FIFO/LIFO/HIFO/Average/Specific-ID, producing different gains |
+| `wallet_transfers` | Moving lots between wallets; an in-asset network fee as a taxable disposal |
+| `gifts` | The IRS dual-basis rule — gain, loss, and the no-gain/no-loss "dead zone" |
+| `tax_reports` | Per-tax-year capital-gains (short/long split) and income reports |
+| `valuation` | Mark-to-market across wallets, with missing-price handling |
+| `portfolio_stats` | Volatility, Sharpe, max drawdown, and returns over a value series |
+
 ## Not tax advice
 
 `coinbasis` is a calculation library. It does not file taxes or give legal
@@ -47,10 +77,40 @@ advice, and makes no guarantee of conformance with any jurisdiction's rules. The
 default model follows current US federal treatment. Provided "as is", without
 warranty.
 
+## Development
+
+```bash
+cargo test                  # unit + integration + doctests
+cargo test --all-features   # include the serde feature
+cargo run --example gifts   # run any example in examples/
+cargo doc --open            # browse the API docs locally
+```
+
+## Project structure
+
+```
+src/
+├── lib.rs         # crate docs + public re-exports
+├── transaction.rs # Transaction event model + field validation
+├── method.rs      # CostBasisMethod, Specific-ID selection, lot ordering
+├── lot.rs         # internal per-(asset, wallet) lot model
+├── engine.rs      # ledger-replay engine — the core
+├── portfolio.rs   # public Portfolio facade (all queries)
+├── report.rs      # output types (gains, income, holdings, reports)
+├── stats.rs       # pure portfolio statistics over a value series
+└── error.rs       # PortfolioError
+examples/          # runnable usage examples
+```
+
 ## Minimum supported Rust version
 
 Rust 1.74.
 
 ## License
 
-MIT OR Apache-2.0.
+Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at
+your option.
+
+## Author
+
+Jacob Kanfer — [GitHub](https://github.com/Technical-1)
