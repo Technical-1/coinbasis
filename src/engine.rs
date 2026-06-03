@@ -339,7 +339,19 @@ impl<'a> Engine<'a> {
                 let proceeds = *quantity * *unit_price - *fee;
                 self.dispose(orig_index, asset, wallet, *quantity, proceeds, *timestamp)?;
             }
-            // Trade, Spend handled in Task 10; Transfer in Task 11; GiftSent in Task 12.
+            Transaction::Trade {
+                timestamp, wallet, from_asset, from_quantity, to_asset, to_quantity, value, fee,
+            } => {
+                // Disposal of the given-up leg at FMV.
+                self.dispose(orig_index, from_asset, wallet, *from_quantity, *value, *timestamp)?;
+                // Acquisition of the received leg; basis = FMV + fee.
+                self.acquire(orig_index, to_asset, wallet, *to_quantity, *value + *fee, *timestamp, None);
+            }
+            Transaction::Spend { timestamp, wallet, asset, quantity, value, fee } => {
+                let proceeds = *value - *fee;
+                self.dispose(orig_index, asset, wallet, *quantity, proceeds, *timestamp)?;
+            }
+            // Transfer handled in Task 11; GiftSent in Task 12.
             _ => unimplemented!("handled in a later task"),
         }
         Ok(())
@@ -492,5 +504,41 @@ mod tests {
         let sel: crate::method::LotSelection = std::collections::HashMap::new();
         let err = run(&txs, Strategy::Specific(&sel)).unwrap_err();
         assert!(matches!(err, crate::error::PortfolioError::MissingLotSelection { .. }));
+    }
+
+    #[test]
+    fn trade_disposes_from_leg_and_opens_to_leg() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            // Trade 1 BTC (FMV 500) for 10 ETH, fee 5 -> ETH basis = 505.
+            Transaction::Trade { timestamp: ts(2021, 6, 1), wallet: "w".into(),
+                from_asset: "btc".into(), from_quantity: dec!(1),
+                to_asset: "eth".into(), to_quantity: dec!(10),
+                value: dec!(500), fee: dec!(5) },
+            Transaction::Sell { timestamp: ts(2021, 7, 1), wallet: "w".into(), asset: "eth".into(),
+                quantity: dec!(10), unit_price: dec!(60), fee: dec!(0) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
+        // First realized: BTC disposal, proceeds 500, basis 100, gain 400.
+        let btc = out.realized.iter().find(|r| r.asset == "btc").unwrap();
+        assert_eq!(btc.gain, dec!(400));
+        // Second realized: ETH sale, proceeds 600, basis 505, gain 95.
+        let eth = out.realized.iter().find(|r| r.asset == "eth").unwrap();
+        assert_eq!(eth.cost_basis, dec!(505));
+        assert_eq!(eth.gain, dec!(95));
+    }
+
+    #[test]
+    fn spend_is_a_disposal_at_fmv() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Spend { timestamp: ts(2021, 2, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), value: dec!(180), fee: dec!(0) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
+        assert_eq!(out.realized[0].proceeds, dec!(180));
+        assert_eq!(out.realized[0].gain, dec!(80));
     }
 }
