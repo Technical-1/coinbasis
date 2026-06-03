@@ -41,6 +41,21 @@ fn to_holding(l: &Lot) -> Holding {
 impl Portfolio {
     /// Build a portfolio from a ledger, validating each event's fields. The
     /// original order is preserved (Specific-ID indices refer to it).
+    ///
+    /// # Example
+    /// ```
+    /// use coinbasis::{Portfolio, Transaction};
+    /// use chrono::{TimeZone, Utc};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let txs = vec![Transaction::Buy {
+    ///     timestamp: Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
+    ///     wallet: "w".into(), asset: "btc".into(),
+    ///     quantity: Decimal::new(1, 0), unit_price: Decimal::new(100, 0), fee: Decimal::new(0, 0),
+    /// }];
+    /// let portfolio = Portfolio::from_transactions(&txs).unwrap();
+    /// assert_eq!(portfolio.holdings(coinbasis::CostBasisMethod::Fifo).unwrap().len(), 1);
+    /// ```
     pub fn from_transactions(txs: &[Transaction]) -> Result<Self, PortfolioError> {
         for tx in txs {
             tx.validate()?;
@@ -50,6 +65,24 @@ impl Portfolio {
 
     /// Realized capital-gain rows under an automatic method. Returns
     /// [`PortfolioError::SelectionRequired`] for `SpecificId`.
+    ///
+    /// # Example
+    /// ```
+    /// use coinbasis::{CostBasisMethod, Portfolio, Transaction};
+    /// use chrono::{TimeZone, Utc};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let txs = vec![
+    ///     Transaction::Buy { timestamp: Utc.with_ymd_and_hms(2020,1,1,0,0,0).unwrap(),
+    ///         wallet: "w".into(), asset: "btc".into(),
+    ///         quantity: Decimal::new(1,0), unit_price: Decimal::new(100,0), fee: Decimal::new(0,0) },
+    ///     Transaction::Sell { timestamp: Utc.with_ymd_and_hms(2022,1,1,0,0,0).unwrap(),
+    ///         wallet: "w".into(), asset: "btc".into(),
+    ///         quantity: Decimal::new(1,0), unit_price: Decimal::new(500,0), fee: Decimal::new(0,0) },
+    /// ];
+    /// let p = Portfolio::from_transactions(&txs).unwrap();
+    /// assert_eq!(p.realized_gains(CostBasisMethod::Fifo).unwrap()[0].gain, Decimal::new(400, 0));
+    /// ```
     pub fn realized_gains(
         &self,
         method: CostBasisMethod,
@@ -61,6 +94,27 @@ impl Portfolio {
     }
 
     /// Realized capital-gain rows using a Specific-ID selection.
+    ///
+    /// # Example
+    /// ```
+    /// use std::collections::HashMap;
+    /// use coinbasis::{LotPick, LotSelection, Portfolio, Transaction};
+    /// use chrono::{TimeZone, Utc};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let txs = vec![
+    ///     Transaction::Buy { timestamp: Utc.with_ymd_and_hms(2020,1,1,0,0,0).unwrap(),
+    ///         wallet: "w".into(), asset: "btc".into(),
+    ///         quantity: Decimal::new(1,0), unit_price: Decimal::new(100,0), fee: Decimal::new(0,0) },
+    ///     Transaction::Sell { timestamp: Utc.with_ymd_and_hms(2022,1,1,0,0,0).unwrap(),
+    ///         wallet: "w".into(), asset: "btc".into(),
+    ///         quantity: Decimal::new(1,0), unit_price: Decimal::new(500,0), fee: Decimal::new(0,0) },
+    /// ];
+    /// let p = Portfolio::from_transactions(&txs).unwrap();
+    /// let mut sel: LotSelection = HashMap::new();
+    /// sel.insert(1, vec![LotPick { acquisition_index: 0, quantity: Decimal::new(1, 0) }]);
+    /// assert_eq!(p.realized_gains_with_selection(&sel).unwrap()[0].gain, Decimal::new(400, 0));
+    /// ```
     pub fn realized_gains_with_selection(
         &self,
         selection: &LotSelection,
@@ -69,6 +123,21 @@ impl Portfolio {
     }
 
     /// Ordinary-income events (method-independent).
+    ///
+    /// # Example
+    /// ```
+    /// use coinbasis::{IncomeSource, Portfolio, Transaction};
+    /// use chrono::{TimeZone, Utc};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let txs = vec![Transaction::Income {
+    ///     timestamp: Utc.with_ymd_and_hms(2021,5,1,0,0,0).unwrap(),
+    ///     wallet: "w".into(), asset: "eth".into(),
+    ///     quantity: Decimal::new(1,0), value: Decimal::new(60,0), source: IncomeSource::Staking,
+    /// }];
+    /// let p = Portfolio::from_transactions(&txs).unwrap();
+    /// assert_eq!(p.income_events()[0].value, Decimal::new(60, 0));
+    /// ```
     pub fn income_events(&self) -> Vec<IncomeEvent> {
         // Income does not depend on the disposal method; it is read directly
         // from the ledger so it cannot surface disposal/lot errors.
@@ -96,6 +165,22 @@ impl Portfolio {
     }
 
     /// Current open positions (per wallet) under an automatic method.
+    ///
+    /// # Example
+    /// ```
+    /// use coinbasis::{CostBasisMethod, Portfolio, Transaction};
+    /// use chrono::{TimeZone, Utc};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let txs = vec![Transaction::Buy {
+    ///     timestamp: Utc.with_ymd_and_hms(2021,1,1,0,0,0).unwrap(),
+    ///     wallet: "w".into(), asset: "eth".into(),
+    ///     quantity: Decimal::new(2,0), unit_price: Decimal::new(50,0), fee: Decimal::new(0,0),
+    /// }];
+    /// let p = Portfolio::from_transactions(&txs).unwrap();
+    /// let h = p.holdings(CostBasisMethod::Fifo).unwrap();
+    /// assert_eq!(h[0].average_cost, Decimal::new(50, 0));
+    /// ```
     pub fn holdings(&self, method: CostBasisMethod) -> Result<Vec<Holding>, PortfolioError> {
         if method == CostBasisMethod::SpecificId {
             return Err(PortfolioError::SelectionRequired);
@@ -110,6 +195,25 @@ impl Portfolio {
     /// Value current holdings at supplied prices, aggregating per asset across
     /// wallets. Held assets with no supplied price are excluded from totals and
     /// listed in `missing_prices`.
+    ///
+    /// # Example
+    /// ```
+    /// use std::collections::HashMap;
+    /// use coinbasis::{CostBasisMethod, Portfolio, Transaction};
+    /// use chrono::{TimeZone, Utc};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let txs = vec![Transaction::Buy {
+    ///     timestamp: Utc.with_ymd_and_hms(2021,1,1,0,0,0).unwrap(),
+    ///     wallet: "w".into(), asset: "btc".into(),
+    ///     quantity: Decimal::new(1,0), unit_price: Decimal::new(100,0), fee: Decimal::new(0,0),
+    /// }];
+    /// let p = Portfolio::from_transactions(&txs).unwrap();
+    /// let mut prices = HashMap::new();
+    /// prices.insert("btc".to_string(), Decimal::new(150, 0));
+    /// let report = p.valuation(CostBasisMethod::Fifo, &prices).unwrap();
+    /// assert_eq!(report.total_unrealized, Decimal::new(50, 0));
+    /// ```
     pub fn valuation(
         &self,
         method: CostBasisMethod,
@@ -180,6 +284,25 @@ impl Portfolio {
     /// Form-8949-shaped capital-gains report for one calendar tax year (UTC),
     /// under an automatic method. Use
     /// [`Portfolio::capital_gains_report_with_selection`] for Specific-ID.
+    ///
+    /// # Example
+    /// ```
+    /// use coinbasis::{CostBasisMethod, Portfolio, Transaction};
+    /// use chrono::{TimeZone, Utc};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let txs = vec![
+    ///     Transaction::Buy { timestamp: Utc.with_ymd_and_hms(2019,1,1,0,0,0).unwrap(),
+    ///         wallet: "w".into(), asset: "btc".into(),
+    ///         quantity: Decimal::new(1,0), unit_price: Decimal::new(100,0), fee: Decimal::new(0,0) },
+    ///     Transaction::Sell { timestamp: Utc.with_ymd_and_hms(2021,3,1,0,0,0).unwrap(),
+    ///         wallet: "w".into(), asset: "btc".into(),
+    ///         quantity: Decimal::new(1,0), unit_price: Decimal::new(500,0), fee: Decimal::new(0,0) },
+    /// ];
+    /// let p = Portfolio::from_transactions(&txs).unwrap();
+    /// let r = p.capital_gains_report(CostBasisMethod::Fifo, 2021).unwrap();
+    /// assert_eq!(r.long_term_gain, Decimal::new(400, 0));
+    /// ```
     pub fn capital_gains_report(
         &self,
         method: CostBasisMethod,
@@ -193,6 +316,28 @@ impl Portfolio {
     }
 
     /// Capital-gains report using a Specific-ID selection.
+    ///
+    /// # Example
+    /// ```
+    /// use std::collections::HashMap;
+    /// use coinbasis::{LotPick, LotSelection, Portfolio, Transaction};
+    /// use chrono::{TimeZone, Utc};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let txs = vec![
+    ///     Transaction::Buy { timestamp: Utc.with_ymd_and_hms(2019,1,1,0,0,0).unwrap(),
+    ///         wallet: "w".into(), asset: "btc".into(),
+    ///         quantity: Decimal::new(1,0), unit_price: Decimal::new(100,0), fee: Decimal::new(0,0) },
+    ///     Transaction::Sell { timestamp: Utc.with_ymd_and_hms(2021,3,1,0,0,0).unwrap(),
+    ///         wallet: "w".into(), asset: "btc".into(),
+    ///         quantity: Decimal::new(1,0), unit_price: Decimal::new(500,0), fee: Decimal::new(0,0) },
+    /// ];
+    /// let p = Portfolio::from_transactions(&txs).unwrap();
+    /// let mut sel: LotSelection = HashMap::new();
+    /// sel.insert(1, vec![LotPick { acquisition_index: 0, quantity: Decimal::new(1, 0) }]);
+    /// let r = p.capital_gains_report_with_selection(&sel, 2021).unwrap();
+    /// assert_eq!(r.total_gain, Decimal::new(400, 0));
+    /// ```
     pub fn capital_gains_report_with_selection(
         &self,
         selection: &LotSelection,
@@ -228,6 +373,21 @@ impl Portfolio {
     }
 
     /// Ordinary-income report for one calendar tax year (UTC).
+    ///
+    /// # Example
+    /// ```
+    /// use coinbasis::{IncomeSource, Portfolio, Transaction};
+    /// use chrono::{TimeZone, Utc};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let txs = vec![Transaction::Income {
+    ///     timestamp: Utc.with_ymd_and_hms(2021,5,1,0,0,0).unwrap(),
+    ///     wallet: "w".into(), asset: "eth".into(),
+    ///     quantity: Decimal::new(1,0), value: Decimal::new(60,0), source: IncomeSource::Airdrop,
+    /// }];
+    /// let p = Portfolio::from_transactions(&txs).unwrap();
+    /// assert_eq!(p.income_report(2021).total_income, Decimal::new(60, 0));
+    /// ```
     pub fn income_report(&self, tax_year: i32) -> IncomeReport {
         let events: Vec<IncomeEvent> = self
             .income_events()
