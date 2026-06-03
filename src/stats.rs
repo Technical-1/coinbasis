@@ -8,6 +8,12 @@
 
 /// Period-over-period simple returns from a value series.
 /// Returns an empty vec if fewer than two values.
+///
+/// # Example
+/// ```
+/// let r = coinbasis::stats::returns_from_values(&[100.0, 110.0]);
+/// assert!((r[0] - 0.1).abs() < 1e-9);
+/// ```
 pub fn returns_from_values(values: &[f64]) -> Vec<f64> {
     values
         .windows(2)
@@ -21,6 +27,13 @@ fn mean(xs: &[f64]) -> f64 {
 }
 
 /// Sample standard deviation of a returns series. `None` if fewer than two.
+///
+/// # Example
+/// ```
+/// let v = coinbasis::stats::volatility(&[0.1, -0.1]).unwrap();
+/// assert!(v > 0.0);
+/// assert!(coinbasis::stats::volatility(&[0.1]).is_none());
+/// ```
 pub fn volatility(returns: &[f64]) -> Option<f64> {
     if returns.len() < 2 {
         return None;
@@ -32,6 +45,12 @@ pub fn volatility(returns: &[f64]) -> Option<f64> {
 
 /// Sharpe ratio: (mean(returns) - risk_free) / volatility(returns).
 /// `None` if fewer than two returns or volatility is zero.
+///
+/// # Example
+/// ```
+/// // Equal returns => zero volatility => undefined Sharpe.
+/// assert!(coinbasis::stats::sharpe_ratio(&[0.05, 0.05, 0.05], 0.05).is_none());
+/// ```
 pub fn sharpe_ratio(returns: &[f64], risk_free: f64) -> Option<f64> {
     let vol = volatility(returns)?;
     if vol < f64::EPSILON {
@@ -42,6 +61,13 @@ pub fn sharpe_ratio(returns: &[f64], risk_free: f64) -> Option<f64> {
 
 /// Worst peak-to-trough decline of a value series, as a fraction in `0.0..=1.0`.
 /// `None` if fewer than two values.
+///
+/// # Example
+/// ```
+/// // Peak 120 -> trough 60 is a 0.5 drawdown.
+/// let dd = coinbasis::stats::max_drawdown(&[100.0, 120.0, 60.0, 80.0]).unwrap();
+/// assert!((dd - 0.5).abs() < 1e-9);
+/// ```
 pub fn max_drawdown(values: &[f64]) -> Option<f64> {
     if values.len() < 2 {
         return None;
@@ -63,6 +89,12 @@ pub fn max_drawdown(values: &[f64]) -> Option<f64> {
 
 /// Total return from first to last value. `None` if fewer than two values or the
 /// first value is zero.
+///
+/// # Example
+/// ```
+/// let c = coinbasis::stats::cumulative_return(&[100.0, 150.0]).unwrap();
+/// assert!((c - 0.5).abs() < 1e-9);
+/// ```
 pub fn cumulative_return(values: &[f64]) -> Option<f64> {
     if values.len() < 2 || values[0] == 0.0 {
         return None;
