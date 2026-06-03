@@ -17,29 +17,49 @@ fn main() {
     let txs = vec![
         // Buy in the hot wallet in 2020.
         Transaction::Buy {
-            timestamp: ts(2020, 1, 1), wallet: "hot".into(), asset: "btc".into(),
-            quantity: dec!(1), unit_price: dec!(100), fee: dec!(0),
+            timestamp: ts(2020, 1, 1),
+            wallet: "hot".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(100),
+            fee: dec!(0),
         },
         // Move it to cold storage in 2020 — non-taxable, basis & date preserved.
         Transaction::Transfer {
-            timestamp: ts(2020, 6, 1), asset: "btc".into(), quantity: dec!(1),
-            from_wallet: "hot".into(), to_wallet: "cold".into(),
-            fee: dec!(0), fee_value: dec!(0),
+            timestamp: ts(2020, 6, 1),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            from_wallet: "hot".into(),
+            to_wallet: "cold".into(),
+            fee: dec!(0),
+            fee_value: dec!(0),
         },
         // Buy 10 ETH, then move 9 to cold and burn 1 as a network fee (FMV 15).
         Transaction::Buy {
-            timestamp: ts(2021, 1, 1), wallet: "hot".into(), asset: "eth".into(),
-            quantity: dec!(10), unit_price: dec!(10), fee: dec!(0),
+            timestamp: ts(2021, 1, 1),
+            wallet: "hot".into(),
+            asset: "eth".into(),
+            quantity: dec!(10),
+            unit_price: dec!(10),
+            fee: dec!(0),
         },
         Transaction::Transfer {
-            timestamp: ts(2021, 2, 1), asset: "eth".into(), quantity: dec!(9),
-            from_wallet: "hot".into(), to_wallet: "cold".into(),
-            fee: dec!(1), fee_value: dec!(15),
+            timestamp: ts(2021, 2, 1),
+            asset: "eth".into(),
+            quantity: dec!(9),
+            from_wallet: "hot".into(),
+            to_wallet: "cold".into(),
+            fee: dec!(1),
+            fee_value: dec!(15),
         },
         // Sell the transferred BTC from cold in 2022 — still long-term from 2020.
         Transaction::Sell {
-            timestamp: ts(2022, 1, 1), wallet: "cold".into(), asset: "btc".into(),
-            quantity: dec!(1), unit_price: dec!(500), fee: dec!(0),
+            timestamp: ts(2022, 1, 1),
+            wallet: "cold".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(500),
+            fee: dec!(0),
         },
     ];
 

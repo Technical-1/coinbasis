@@ -385,57 +385,226 @@ mod tests {
     #[test]
     fn validate_rejects_negative_unit_price() {
         let b = Transaction::Buy {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-            quantity: dec!(1), unit_price: dec!(-1), fee: dec!(0),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(-1),
+            fee: dec!(0),
         };
-        assert_eq!(b.validate(), Err(PortfolioError::NegativeValue { asset: "btc".into() }));
+        assert_eq!(
+            b.validate(),
+            Err(PortfolioError::NegativeValue {
+                asset: "btc".into()
+            })
+        );
     }
 
     #[test]
     fn validate_rejects_negative_gift_fmv() {
         let g = Transaction::GiftReceived {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-            quantity: dec!(1), donor_basis: dec!(10), fmv_at_receipt: dec!(-5),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            donor_basis: dec!(10),
+            fmv_at_receipt: dec!(-5),
             donor_acquired_at: ts(2018, 1, 1),
         };
-        assert_eq!(g.validate(), Err(PortfolioError::NegativeValue { asset: "btc".into() }));
+        assert_eq!(
+            g.validate(),
+            Err(PortfolioError::NegativeValue {
+                asset: "btc".into()
+            })
+        );
     }
 
     #[test]
     fn validate_rejects_negative_transfer_fee_value() {
         let t = Transaction::Transfer {
-            timestamp: ts(2021, 1, 1), asset: "btc".into(), quantity: dec!(1),
-            from_wallet: "a".into(), to_wallet: "b".into(), fee: dec!(1), fee_value: dec!(-1),
+            timestamp: ts(2021, 1, 1),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            from_wallet: "a".into(),
+            to_wallet: "b".into(),
+            fee: dec!(1),
+            fee_value: dec!(-1),
         };
-        assert_eq!(t.validate(), Err(PortfolioError::NegativeValue { asset: "btc".into() }));
+        assert_eq!(
+            t.validate(),
+            Err(PortfolioError::NegativeValue {
+                asset: "btc".into()
+            })
+        );
     }
 
     #[test]
     fn validate_rejects_non_positive_trade_leg() {
         let tr = Transaction::Trade {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(),
-            from_asset: "btc".into(), from_quantity: dec!(0),
-            to_asset: "eth".into(), to_quantity: dec!(10),
-            value: dec!(500), fee: dec!(0),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            from_asset: "btc".into(),
+            from_quantity: dec!(0),
+            to_asset: "eth".into(),
+            to_quantity: dec!(10),
+            value: dec!(500),
+            fee: dec!(0),
         };
         assert_eq!(
             tr.validate(),
-            Err(PortfolioError::NonPositiveQuantity { asset: "btc".into(), quantity: dec!(0) })
+            Err(PortfolioError::NonPositiveQuantity {
+                asset: "btc".into(),
+                quantity: dec!(0)
+            })
         );
     }
 
     #[test]
     fn validate_accepts_well_formed_gift_and_transfer() {
         let g = Transaction::GiftReceived {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-            quantity: dec!(1), donor_basis: dec!(10), fmv_at_receipt: dec!(12),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            donor_basis: dec!(10),
+            fmv_at_receipt: dec!(12),
             donor_acquired_at: ts(2018, 1, 1),
         };
         assert_eq!(g.validate(), Ok(()));
         let t = Transaction::Transfer {
-            timestamp: ts(2021, 1, 1), asset: "btc".into(), quantity: dec!(1),
-            from_wallet: "a".into(), to_wallet: "b".into(), fee: dec!(0), fee_value: dec!(0),
+            timestamp: ts(2021, 1, 1),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            from_wallet: "a".into(),
+            to_wallet: "b".into(),
+            fee: dec!(0),
+            fee_value: dec!(0),
         };
         assert_eq!(t.validate(), Ok(()));
+    }
+
+    #[test]
+    fn validate_trade_rejects_invalid_to_quantity_value_and_fee() {
+        // to_quantity zero
+        let tr = Transaction::Trade {
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            from_asset: "btc".into(),
+            from_quantity: dec!(1),
+            to_asset: "eth".into(),
+            to_quantity: dec!(0),
+            value: dec!(500),
+            fee: dec!(0),
+        };
+        assert_eq!(
+            tr.validate(),
+            Err(PortfolioError::NonPositiveQuantity {
+                asset: "eth".into(),
+                quantity: dec!(0)
+            })
+        );
+        // negative value
+        let tr2 = Transaction::Trade {
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            from_asset: "btc".into(),
+            from_quantity: dec!(1),
+            to_asset: "eth".into(),
+            to_quantity: dec!(10),
+            value: dec!(-1),
+            fee: dec!(0),
+        };
+        assert_eq!(
+            tr2.validate(),
+            Err(PortfolioError::NegativeValue {
+                asset: "btc".into()
+            })
+        );
+        // negative fee
+        let tr3 = Transaction::Trade {
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            from_asset: "btc".into(),
+            from_quantity: dec!(1),
+            to_asset: "eth".into(),
+            to_quantity: dec!(10),
+            value: dec!(500),
+            fee: dec!(-5),
+        };
+        assert_eq!(
+            tr3.validate(),
+            Err(PortfolioError::NegativeFee {
+                asset: "btc".into(),
+                fee: dec!(-5)
+            })
+        );
+    }
+
+    #[test]
+    fn validate_spend_rejects_invalid_fields() {
+        // non-positive quantity
+        let s = Transaction::Spend {
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(0),
+            value: dec!(100),
+            fee: dec!(0),
+        };
+        assert_eq!(
+            s.validate(),
+            Err(PortfolioError::NonPositiveQuantity {
+                asset: "btc".into(),
+                quantity: dec!(0)
+            })
+        );
+        // negative value
+        let s2 = Transaction::Spend {
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            value: dec!(-1),
+            fee: dec!(0),
+        };
+        assert_eq!(
+            s2.validate(),
+            Err(PortfolioError::NegativeValue {
+                asset: "btc".into()
+            })
+        );
+        // negative fee
+        let s3 = Transaction::Spend {
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            value: dec!(100),
+            fee: dec!(-1),
+        };
+        assert_eq!(
+            s3.validate(),
+            Err(PortfolioError::NegativeFee {
+                asset: "btc".into(),
+                fee: dec!(-1)
+            })
+        );
+    }
+
+    #[test]
+    fn validate_gift_sent_rejects_non_positive_quantity() {
+        let g = Transaction::GiftSent {
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(0),
+        };
+        assert_eq!(
+            g.validate(),
+            Err(PortfolioError::NonPositiveQuantity {
+                asset: "btc".into(),
+                quantity: dec!(0)
+            })
+        );
     }
 }

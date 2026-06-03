@@ -123,4 +123,13 @@ mod tests {
         let lots = vec![lot(1, 1, 10, 1), lot(2, 2, 30, 1), lot(3, 3, 20, 1)];
         assert_eq!(order_for(CostBasisMethod::Hifo, &lots), vec![1, 2, 0]);
     }
+
+    #[test]
+    fn average_and_specific_id_fall_back_to_fifo_order() {
+        // order_for is not used by the engine for these methods, but it must
+        // still return a stable FIFO ordering (oldest first) for completeness.
+        let lots = vec![lot(1, 3, 30, 1), lot(2, 1, 10, 1), lot(3, 2, 20, 1)];
+        assert_eq!(order_for(CostBasisMethod::Average, &lots), vec![1, 2, 0]);
+        assert_eq!(order_for(CostBasisMethod::SpecificId, &lots), vec![1, 2, 0]);
+    }
 }

@@ -17,16 +17,28 @@ fn ts(y: i32, m: u32, d: u32) -> chrono::DateTime<Utc> {
 fn main() {
     let txs = vec![
         Transaction::Buy {
-            timestamp: ts(2021, 1, 1), wallet: "a".into(), asset: "btc".into(),
-            quantity: dec!(1), unit_price: dec!(100), fee: dec!(0),
+            timestamp: ts(2021, 1, 1),
+            wallet: "a".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(100),
+            fee: dec!(0),
         },
         Transaction::Buy {
-            timestamp: ts(2021, 1, 2), wallet: "b".into(), asset: "btc".into(),
-            quantity: dec!(1), unit_price: dec!(140), fee: dec!(0),
+            timestamp: ts(2021, 1, 2),
+            wallet: "b".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(140),
+            fee: dec!(0),
         },
         Transaction::Buy {
-            timestamp: ts(2021, 1, 3), wallet: "a".into(), asset: "eth".into(),
-            quantity: dec!(1), unit_price: dec!(50), fee: dec!(0),
+            timestamp: ts(2021, 1, 3),
+            wallet: "a".into(),
+            asset: "eth".into(),
+            quantity: dec!(1),
+            unit_price: dec!(50),
+            fee: dec!(0),
         },
     ];
     let p = Portfolio::from_transactions(&txs).unwrap();

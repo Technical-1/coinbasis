@@ -617,18 +617,40 @@ mod tests {
 
     fn two_lots() -> Vec<Transaction> {
         vec![
-            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(300), fee: dec!(0) },
-            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2020, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(300),
+                fee: dec!(0),
+            },
+            Transaction::Sell {
+                timestamp: ts(2022, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(500),
+                fee: dec!(0),
+            },
         ]
     }
 
     fn gain_sum(method: CostBasisMethod) -> rust_decimal::Decimal {
         let p = Portfolio::from_transactions(&two_lots()).unwrap();
-        p.realized_gains(method).unwrap().iter().map(|g| g.gain).sum()
+        p.realized_gains(method)
+            .unwrap()
+            .iter()
+            .map(|g| g.gain)
+            .sum()
     }
 
     #[test]
@@ -641,10 +663,22 @@ mod tests {
     #[test]
     fn holdings_under_average_pools_to_one_lot() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(300), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2020, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(300),
+                fee: dec!(0),
+            },
         ];
         let p = Portfolio::from_transactions(&txs).unwrap();
         let h = p.holdings(CostBasisMethod::Average).unwrap();
@@ -678,7 +712,13 @@ mod tests {
     fn capital_gains_report_with_selection_filters_and_totals() {
         let p = Portfolio::from_transactions(&sample()).unwrap();
         let mut sel: LotSelection = HashMap::new();
-        sel.insert(1, vec![LotPick { acquisition_index: 0, quantity: dec!(1) }]);
+        sel.insert(
+            1,
+            vec![LotPick {
+                acquisition_index: 0,
+                quantity: dec!(1),
+            }],
+        );
         let r = p.capital_gains_report_with_selection(&sel, 2022).unwrap();
         assert_eq!(r.rows.len(), 1);
         assert_eq!(r.total_gain, dec!(400));
@@ -691,7 +731,9 @@ mod tests {
     #[test]
     fn capital_gains_report_average_is_untermed() {
         let p = Portfolio::from_transactions(&two_lots()).unwrap();
-        let r = p.capital_gains_report(CostBasisMethod::Average, 2022).unwrap();
+        let r = p
+            .capital_gains_report(CostBasisMethod::Average, 2022)
+            .unwrap();
         assert_eq!(r.total_gain, dec!(300));
         assert_eq!(r.short_term_gain, dec!(0));
         assert_eq!(r.long_term_gain, dec!(0));
@@ -700,10 +742,22 @@ mod tests {
     #[test]
     fn income_events_returns_each_income_row() {
         let txs = vec![
-            Transaction::Income { timestamp: ts(2021, 5, 1), wallet: "w".into(), asset: "eth".into(),
-                quantity: dec!(1), value: dec!(60), source: crate::transaction::IncomeSource::Staking },
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Income {
+                timestamp: ts(2021, 5, 1),
+                wallet: "w".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                value: dec!(60),
+                source: crate::transaction::IncomeSource::Staking,
+            },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
         ];
         let p = Portfolio::from_transactions(&txs).unwrap();
         let ev = p.income_events();
@@ -715,10 +769,22 @@ mod tests {
     #[test]
     fn valuation_allocations_sum_to_one_and_total_return() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "a".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Buy { timestamp: ts(2021, 1, 2), wallet: "a".into(), asset: "eth".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "a".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 2),
+                wallet: "a".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
         ];
         let p = Portfolio::from_transactions(&txs).unwrap();
         let mut prices = HashMap::new();
@@ -736,8 +802,12 @@ mod tests {
     #[test]
     fn valuation_zero_cost_basis_guards_total_return() {
         let txs = vec![Transaction::GiftReceived {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-            quantity: dec!(1), donor_basis: dec!(0), fmv_at_receipt: dec!(50),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            donor_basis: dec!(0),
+            fmv_at_receipt: dec!(50),
             donor_acquired_at: ts(2018, 1, 1),
         }];
         let p = Portfolio::from_transactions(&txs).unwrap();
@@ -751,10 +821,22 @@ mod tests {
     #[test]
     fn valuation_empty_portfolio_is_all_zero() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Sell { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(150), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2020, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Sell {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(150),
+                fee: dec!(0),
+            },
         ];
         let p = Portfolio::from_transactions(&txs).unwrap();
         let r = p.valuation(CostBasisMethod::Fifo, &HashMap::new()).unwrap();
@@ -771,5 +853,26 @@ mod tests {
             p.valuation(CostBasisMethod::SpecificId, &HashMap::new()),
             Err(crate::error::PortfolioError::SelectionRequired)
         ));
+    }
+
+    #[test]
+    fn valuation_zero_price_yields_zero_allocation() {
+        // When every priced asset has price 0, total_value is zero and the
+        // allocation guard sets each asset's allocation to Decimal::ZERO.
+        let txs = vec![Transaction::Buy {
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(100),
+            fee: dec!(0),
+        }];
+        let p = Portfolio::from_transactions(&txs).unwrap();
+        let mut prices = HashMap::new();
+        prices.insert("btc".to_string(), dec!(0));
+        let r = p.valuation(CostBasisMethod::Fifo, &prices).unwrap();
+        assert_eq!(r.assets.len(), 1);
+        assert_eq!(r.assets[0].allocation, dec!(0));
+        assert_eq!(r.total_value, dec!(0));
     }
 }

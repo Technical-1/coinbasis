@@ -18,29 +18,50 @@ fn ledger() -> Vec<Transaction> {
     vec![
         // Lot A: cheap, bought first.
         Transaction::Buy {
-            timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
-            quantity: dec!(1), unit_price: dec!(100), fee: dec!(0),
+            timestamp: ts(2020, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(100),
+            fee: dec!(0),
         },
         // Lot B: expensive, bought later.
         Transaction::Buy {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-            quantity: dec!(1), unit_price: dec!(300), fee: dec!(0),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(300),
+            fee: dec!(0),
         },
         // Sell one unit at 500 — which lot is consumed depends on the method.
         Transaction::Sell {
-            timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
-            quantity: dec!(1), unit_price: dec!(500), fee: dec!(0),
+            timestamp: ts(2022, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(500),
+            fee: dec!(0),
         },
     ]
 }
 
 fn gain(method: CostBasisMethod) -> Decimal {
     let p = Portfolio::from_transactions(&ledger()).unwrap();
-    p.realized_gains(method).unwrap().iter().map(|g| g.gain).sum()
+    p.realized_gains(method)
+        .unwrap()
+        .iter()
+        .map(|g| g.gain)
+        .sum()
 }
 
 fn main() {
-    for m in [CostBasisMethod::Fifo, CostBasisMethod::Lifo, CostBasisMethod::Hifo, CostBasisMethod::Average] {
+    for m in [
+        CostBasisMethod::Fifo,
+        CostBasisMethod::Lifo,
+        CostBasisMethod::Hifo,
+        CostBasisMethod::Average,
+    ] {
         println!("{:?}: gain = {}", m, gain(m));
     }
 
@@ -48,7 +69,13 @@ fn main() {
     // sell the expensive lot (the Buy at input index 1) for the disposal at
     // input index 2.
     let mut selection: LotSelection = HashMap::new();
-    selection.insert(2, vec![LotPick { acquisition_index: 1, quantity: dec!(1) }]);
+    selection.insert(
+        2,
+        vec![LotPick {
+            acquisition_index: 1,
+            quantity: dec!(1),
+        }],
+    );
     let p = Portfolio::from_transactions(&ledger()).unwrap();
     let spec_gain: Decimal = p
         .realized_gains_with_selection(&selection)

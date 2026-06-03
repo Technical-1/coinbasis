@@ -178,4 +178,11 @@ mod tests {
     fn max_drawdown_monotonic_increasing_is_zero() {
         approx(max_drawdown(&[100.0, 110.0, 130.0]).unwrap(), 0.0);
     }
+
+    #[test]
+    fn max_drawdown_non_positive_series_is_zero() {
+        // All values are zero or negative so peak never rises above 0.
+        // The `else if peak > 0.0` branch is never true; drawdown stays 0.
+        approx(max_drawdown(&[0.0, -1.0, -2.0]).unwrap(), 0.0);
+    }
 }

@@ -15,26 +15,46 @@ fn main() {
     let txs = vec![
         // Long-term: bought 2019, sold 2021 -> gain 400, long-term.
         Transaction::Buy {
-            timestamp: ts(2019, 1, 1), wallet: "w".into(), asset: "btc".into(),
-            quantity: dec!(2), unit_price: dec!(100), fee: dec!(0),
+            timestamp: ts(2019, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(2),
+            unit_price: dec!(100),
+            fee: dec!(0),
         },
         Transaction::Sell {
-            timestamp: ts(2021, 3, 1), wallet: "w".into(), asset: "btc".into(),
-            quantity: dec!(1), unit_price: dec!(500), fee: dec!(0),
+            timestamp: ts(2021, 3, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(500),
+            fee: dec!(0),
         },
         // Short-term: bought and sold within 2021 -> gain 30, short-term.
         Transaction::Buy {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "eth".into(),
-            quantity: dec!(1), unit_price: dec!(100), fee: dec!(0),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "eth".into(),
+            quantity: dec!(1),
+            unit_price: dec!(100),
+            fee: dec!(0),
         },
         Transaction::Sell {
-            timestamp: ts(2021, 6, 1), wallet: "w".into(), asset: "eth".into(),
-            quantity: dec!(1), unit_price: dec!(130), fee: dec!(0),
+            timestamp: ts(2021, 6, 1),
+            wallet: "w".into(),
+            asset: "eth".into(),
+            quantity: dec!(1),
+            unit_price: dec!(130),
+            fee: dec!(0),
         },
         // Staking income received in 2021.
         Transaction::Income {
-            timestamp: ts(2021, 5, 1), wallet: "w".into(), asset: "eth".into(),
-            quantity: dec!(1), value: dec!(60), source: IncomeSource::Staking,
+            timestamp: ts(2021, 5, 1),
+            wallet: "w".into(),
+            asset: "eth".into(),
+            quantity: dec!(1),
+            value: dec!(60),
+            source: IncomeSource::Staking,
         },
     ];
 
@@ -43,7 +63,10 @@ fn main() {
     let cg = p.capital_gains_report(CostBasisMethod::Fifo, 2021).unwrap();
     println!(
         "2021 capital gains: short={} long={} total={} ({} rows)",
-        cg.short_term_gain, cg.long_term_gain, cg.total_gain, cg.rows.len()
+        cg.short_term_gain,
+        cg.long_term_gain,
+        cg.total_gain,
+        cg.rows.len()
     );
 
     let inc = p.income_report(2021);
