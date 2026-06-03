@@ -26,7 +26,7 @@ pub mod transaction;
 // Re-exports are added back in the tasks that define each item:
 pub use error::PortfolioError;
 pub use method::{CostBasisMethod, LotPick, LotSelection};
-// pub use portfolio::Portfolio;
+pub use portfolio::Portfolio;
 pub use report::{
     AssetValuation, CapitalGainsReport, Holding, IncomeEvent, IncomeReport, PortfolioReport,
     RealizedGain, Term,
