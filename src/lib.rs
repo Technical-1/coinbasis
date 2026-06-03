@@ -31,4 +31,4 @@ pub use error::PortfolioError;
 //     AssetValuation, CapitalGainsReport, Holding, IncomeEvent, IncomeReport, PortfolioReport,
 //     RealizedGain, Term,
 // };
-// pub use transaction::{IncomeSource, Transaction};
+pub use transaction::{IncomeSource, Transaction};
