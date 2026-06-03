@@ -371,6 +371,7 @@ mod tests {
     use crate::method::CostBasisMethod;
     use crate::transaction::Transaction;
     use chrono::{TimeZone, Utc};
+    use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
 
     fn ts(y: i32, m: u32, d: u32) -> chrono::DateTime<Utc> {
@@ -440,5 +441,56 @@ mod tests {
         assert_eq!(out.income[0].value, dec!(50));
         assert_eq!(out.realized[0].cost_basis, dec!(50)); // income FMV became basis
         assert_eq!(out.realized[0].gain, dec!(20));
+    }
+
+    #[test]
+    fn average_pools_basis_and_drops_term() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(300), fee: dec!(0) },
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Average)).unwrap();
+        // avg cost = (100+300)/2 = 200 -> gain = 300
+        assert_eq!(out.realized[0].cost_basis, dec!(200));
+        assert_eq!(out.realized[0].gain, dec!(300));
+        assert_eq!(out.realized[0].term, None);
+        assert_eq!(out.holdings.iter().map(|l| l.quantity).sum::<Decimal>(), dec!(1));
+    }
+
+    #[test]
+    fn specific_id_consumes_named_acquisition() {
+        let txs = vec![
+            // index 0: cheap lot
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            // index 1: expensive lot
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(400), fee: dec!(0) },
+            // index 2: sell 1, specifically the expensive lot (index 1)
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+        ];
+        let mut sel: crate::method::LotSelection = std::collections::HashMap::new();
+        sel.insert(2, vec![crate::method::LotPick { acquisition_index: 1, quantity: dec!(1) }]);
+        let out = run(&txs, Strategy::Specific(&sel)).unwrap();
+        assert_eq!(out.realized[0].cost_basis, dec!(400));
+        assert_eq!(out.realized[0].gain, dec!(100));
+    }
+
+    #[test]
+    fn specific_id_missing_selection_errors() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+        ];
+        let sel: crate::method::LotSelection = std::collections::HashMap::new();
+        let err = run(&txs, Strategy::Specific(&sel)).unwrap_err();
+        assert!(matches!(err, crate::error::PortfolioError::MissingLotSelection { .. }));
     }
 }
