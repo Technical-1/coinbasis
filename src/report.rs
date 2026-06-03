@@ -164,7 +164,13 @@ mod tests {
     #[test]
     fn term_boundary_365_is_short_366_is_long() {
         let acquired = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-        assert_eq!(Term::classify(acquired, acquired + Duration::days(365)), Term::Short);
-        assert_eq!(Term::classify(acquired, acquired + Duration::days(366)), Term::Long);
+        assert_eq!(
+            Term::classify(acquired, acquired + Duration::days(365)),
+            Term::Short
+        );
+        assert_eq!(
+            Term::classify(acquired, acquired + Duration::days(366)),
+            Term::Long
+        );
     }
 }

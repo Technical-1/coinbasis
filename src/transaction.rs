@@ -181,55 +181,108 @@ impl Transaction {
         // Helper closures keep the per-variant checks DRY.
         let pos_qty = |asset: &str, q: Decimal| -> Result<(), PortfolioError> {
             if q <= Decimal::ZERO {
-                Err(PortfolioError::NonPositiveQuantity { asset: asset.to_string(), quantity: q })
+                Err(PortfolioError::NonPositiveQuantity {
+                    asset: asset.to_string(),
+                    quantity: q,
+                })
             } else {
                 Ok(())
             }
         };
         let non_neg_val = |asset: &str, v: Decimal| -> Result<(), PortfolioError> {
             if v < Decimal::ZERO {
-                Err(PortfolioError::NegativeValue { asset: asset.to_string() })
+                Err(PortfolioError::NegativeValue {
+                    asset: asset.to_string(),
+                })
             } else {
                 Ok(())
             }
         };
         let non_neg_fee = |asset: &str, f: Decimal| -> Result<(), PortfolioError> {
             if f < Decimal::ZERO {
-                Err(PortfolioError::NegativeFee { asset: asset.to_string(), fee: f })
+                Err(PortfolioError::NegativeFee {
+                    asset: asset.to_string(),
+                    fee: f,
+                })
             } else {
                 Ok(())
             }
         };
 
         match self {
-            Transaction::Buy { asset, quantity, unit_price, fee, .. }
-            | Transaction::Sell { asset, quantity, unit_price, fee, .. } => {
+            Transaction::Buy {
+                asset,
+                quantity,
+                unit_price,
+                fee,
+                ..
+            }
+            | Transaction::Sell {
+                asset,
+                quantity,
+                unit_price,
+                fee,
+                ..
+            } => {
                 pos_qty(asset, *quantity)?;
                 non_neg_val(asset, *unit_price)?;
                 non_neg_fee(asset, *fee)
             }
-            Transaction::Trade { from_asset, from_quantity, to_asset, to_quantity, value, fee, .. } => {
+            Transaction::Trade {
+                from_asset,
+                from_quantity,
+                to_asset,
+                to_quantity,
+                value,
+                fee,
+                ..
+            } => {
                 pos_qty(from_asset, *from_quantity)?;
                 pos_qty(to_asset, *to_quantity)?;
                 non_neg_val(from_asset, *value)?;
                 non_neg_fee(from_asset, *fee)
             }
-            Transaction::Income { asset, quantity, value, .. } => {
+            Transaction::Income {
+                asset,
+                quantity,
+                value,
+                ..
+            } => {
                 pos_qty(asset, *quantity)?;
                 non_neg_val(asset, *value)
             }
-            Transaction::Spend { asset, quantity, value, fee, .. } => {
+            Transaction::Spend {
+                asset,
+                quantity,
+                value,
+                fee,
+                ..
+            } => {
                 pos_qty(asset, *quantity)?;
                 non_neg_val(asset, *value)?;
                 non_neg_fee(asset, *fee)
             }
-            Transaction::Transfer { asset, quantity, fee, fee_value, .. } => {
+            Transaction::Transfer {
+                asset,
+                quantity,
+                fee,
+                fee_value,
+                ..
+            } => {
                 pos_qty(asset, *quantity)?;
                 non_neg_fee(asset, *fee)?;
                 non_neg_val(asset, *fee_value)
             }
-            Transaction::GiftSent { asset, quantity, .. } => pos_qty(asset, *quantity),
-            Transaction::GiftReceived { asset, quantity, donor_basis, fmv_at_receipt, .. } => {
+            Transaction::GiftSent {
+                asset, quantity, ..
+            } => pos_qty(asset, *quantity),
+            Transaction::GiftReceived {
+                asset,
+                quantity,
+                donor_basis,
+                fmv_at_receipt,
+                ..
+            } => {
                 pos_qty(asset, *quantity)?;
                 non_neg_val(asset, *donor_basis)?;
                 non_neg_val(asset, *fmv_at_receipt)
@@ -252,13 +305,22 @@ mod tests {
     #[test]
     fn timestamp_accessor_works_for_each_variant() {
         let b = Transaction::Buy {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "bitcoin".into(),
-            quantity: dec!(1), unit_price: dec!(100), fee: dec!(0),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "bitcoin".into(),
+            quantity: dec!(1),
+            unit_price: dec!(100),
+            fee: dec!(0),
         };
         assert_eq!(b.timestamp(), ts(2021, 1, 1));
         let t = Transaction::Transfer {
-            timestamp: ts(2021, 2, 2), asset: "bitcoin".into(), quantity: dec!(1),
-            from_wallet: "a".into(), to_wallet: "b".into(), fee: dec!(0), fee_value: dec!(0),
+            timestamp: ts(2021, 2, 2),
+            asset: "bitcoin".into(),
+            quantity: dec!(1),
+            from_wallet: "a".into(),
+            to_wallet: "b".into(),
+            fee: dec!(0),
+            fee_value: dec!(0),
         };
         assert_eq!(t.timestamp(), ts(2021, 2, 2));
     }
@@ -266,32 +328,50 @@ mod tests {
     #[test]
     fn validate_rejects_non_positive_quantity() {
         let b = Transaction::Buy {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "eth".into(),
-            quantity: dec!(0), unit_price: dec!(100), fee: dec!(0),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "eth".into(),
+            quantity: dec!(0),
+            unit_price: dec!(100),
+            fee: dec!(0),
         };
         assert_eq!(
             b.validate(),
-            Err(PortfolioError::NonPositiveQuantity { asset: "eth".into(), quantity: dec!(0) })
+            Err(PortfolioError::NonPositiveQuantity {
+                asset: "eth".into(),
+                quantity: dec!(0)
+            })
         );
     }
 
     #[test]
     fn validate_rejects_negative_fee() {
         let s = Transaction::Sell {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "eth".into(),
-            quantity: dec!(1), unit_price: dec!(100), fee: dec!(-1),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "eth".into(),
+            quantity: dec!(1),
+            unit_price: dec!(100),
+            fee: dec!(-1),
         };
         assert_eq!(
             s.validate(),
-            Err(PortfolioError::NegativeFee { asset: "eth".into(), fee: dec!(-1) })
+            Err(PortfolioError::NegativeFee {
+                asset: "eth".into(),
+                fee: dec!(-1)
+            })
         );
     }
 
     #[test]
     fn validate_accepts_well_formed_event() {
         let b = Transaction::Buy {
-            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "eth".into(),
-            quantity: dec!(1), unit_price: dec!(100), fee: dec!(1),
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "eth".into(),
+            quantity: dec!(1),
+            unit_price: dec!(100),
+            fee: dec!(1),
         };
         assert_eq!(b.validate(), Ok(()));
     }

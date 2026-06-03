@@ -31,6 +31,10 @@ impl Strategy<'_> {
 #[derive(Debug)]
 pub(crate) struct EngineOutput {
     pub realized: Vec<RealizedGain>,
+    /// Income events produced during replay. The public facade reads income
+    /// directly from the ledger instead, so this is consumed only by engine
+    /// tests; kept as part of the engine's complete replay output.
+    #[allow(dead_code)]
     pub income: Vec<IncomeEvent>,
     pub holdings: Vec<Lot>,
 }
@@ -69,7 +73,9 @@ impl<'a> Engine<'a> {
     }
 
     fn pool(&mut self, asset: &str, wallet: &str) -> &mut Vec<Lot> {
-        self.pools.entry((asset.to_string(), wallet.to_string())).or_default()
+        self.pools
+            .entry((asset.to_string(), wallet.to_string()))
+            .or_default()
     }
 
     fn available(&self, asset: &str, wallet: &str) -> Decimal {
@@ -81,6 +87,7 @@ impl<'a> Engine<'a> {
 
     /// Open a new lot in a wallet. `orig_index` is the acquisition's original
     /// input index (registered for Specific-ID).
+    #[allow(clippy::too_many_arguments)]
     fn acquire(
         &mut self,
         orig_index: usize,
@@ -126,7 +133,9 @@ impl<'a> Engine<'a> {
 
         match self.strategy.method() {
             CostBasisMethod::Average => self.consume_average(asset, wallet, quantity),
-            CostBasisMethod::SpecificId => self.consume_specific(orig_index, asset, wallet, quantity),
+            CostBasisMethod::SpecificId => {
+                self.consume_specific(orig_index, asset, wallet, quantity)
+            }
             auto => self.consume_ordered(auto, asset, wallet, quantity),
         }
     }
@@ -227,15 +236,18 @@ impl<'a> Engine<'a> {
         }
         let mut out = Vec::new();
         for pick in picks {
-            let target_lot_id = *self
-                .acq_to_lot
-                .get(&pick.acquisition_index)
-                .ok_or(PortfolioError::InvalidLotSelection { acquisition_index: pick.acquisition_index })?;
+            let target_lot_id = *self.acq_to_lot.get(&pick.acquisition_index).ok_or(
+                PortfolioError::InvalidLotSelection {
+                    acquisition_index: pick.acquisition_index,
+                },
+            )?;
             let lots = self.pool(asset, wallet);
             let pos = lots
                 .iter()
                 .position(|l| l.lot_id == target_lot_id && l.quantity >= pick.quantity)
-                .ok_or(PortfolioError::InvalidLotSelection { acquisition_index: pick.acquisition_index })?;
+                .ok_or(PortfolioError::InvalidLotSelection {
+                    acquisition_index: pick.acquisition_index,
+                })?;
             let per_unit = lots[pos].cost_basis_per_unit();
             let basis = per_unit * pick.quantity;
             out.push(Consumed {
@@ -255,7 +267,12 @@ impl<'a> Engine<'a> {
     /// Remove `quantity` units from a pool without realizing gain (for moves).
     /// Uses the active method's ordering (Average pools; SpecificId falls back to
     /// FIFO, since moves are non-taxable and need no caller selection).
-    fn take(&mut self, asset: &str, wallet: &str, quantity: Decimal) -> Result<Vec<Consumed>, PortfolioError> {
+    fn take(
+        &mut self,
+        asset: &str,
+        wallet: &str,
+        quantity: Decimal,
+    ) -> Result<Vec<Consumed>, PortfolioError> {
         let available = self.available(asset, wallet);
         if quantity > available {
             return Err(PortfolioError::InsufficientLots {
@@ -332,12 +349,30 @@ impl<'a> Engine<'a> {
 
     fn process(&mut self, orig_index: usize, tx: &Transaction) -> Result<(), PortfolioError> {
         match tx {
-            Transaction::Buy { timestamp, wallet, asset, quantity, unit_price, fee } => {
+            Transaction::Buy {
+                timestamp,
+                wallet,
+                asset,
+                quantity,
+                unit_price,
+                fee,
+            } => {
                 let basis = *quantity * *unit_price + *fee;
-                self.acquire(orig_index, asset, wallet, *quantity, basis, *timestamp, None);
+                self.acquire(
+                    orig_index, asset, wallet, *quantity, basis, *timestamp, None,
+                );
             }
-            Transaction::Income { timestamp, wallet, asset, quantity, value, source } => {
-                self.acquire(orig_index, asset, wallet, *quantity, *value, *timestamp, None);
+            Transaction::Income {
+                timestamp,
+                wallet,
+                asset,
+                quantity,
+                value,
+                source,
+            } => {
+                self.acquire(
+                    orig_index, asset, wallet, *quantity, *value, *timestamp, None,
+                );
                 self.income.push(IncomeEvent {
                     asset: asset.clone(),
                     wallet: wallet.clone(),
@@ -348,34 +383,94 @@ impl<'a> Engine<'a> {
                 });
             }
             Transaction::GiftReceived {
-                timestamp, wallet, asset, quantity, donor_basis, fmv_at_receipt, donor_acquired_at,
+                timestamp,
+                wallet,
+                asset,
+                quantity,
+                donor_basis,
+                fmv_at_receipt,
+                donor_acquired_at,
             } => {
                 // Average ignores dual basis (pool at donor/carryover basis).
                 let gift = if self.strategy.method() == CostBasisMethod::Average {
                     None
                 } else {
-                    Some(GiftBasis { fmv_per_unit: *fmv_at_receipt / *quantity })
+                    Some(GiftBasis {
+                        fmv_per_unit: *fmv_at_receipt / *quantity,
+                    })
                 };
-                self.acquire(orig_index, asset, wallet, *quantity, *donor_basis, *donor_acquired_at, gift);
+                self.acquire(
+                    orig_index,
+                    asset,
+                    wallet,
+                    *quantity,
+                    *donor_basis,
+                    *donor_acquired_at,
+                    gift,
+                );
                 let _ = timestamp; // receipt time is not the holding-period start
             }
-            Transaction::Sell { timestamp, wallet, asset, quantity, unit_price, fee } => {
+            Transaction::Sell {
+                timestamp,
+                wallet,
+                asset,
+                quantity,
+                unit_price,
+                fee,
+            } => {
                 let proceeds = *quantity * *unit_price - *fee;
                 self.dispose(orig_index, asset, wallet, *quantity, proceeds, *timestamp)?;
             }
             Transaction::Trade {
-                timestamp, wallet, from_asset, from_quantity, to_asset, to_quantity, value, fee,
+                timestamp,
+                wallet,
+                from_asset,
+                from_quantity,
+                to_asset,
+                to_quantity,
+                value,
+                fee,
             } => {
                 // Disposal of the given-up leg at FMV.
-                self.dispose(orig_index, from_asset, wallet, *from_quantity, *value, *timestamp)?;
+                self.dispose(
+                    orig_index,
+                    from_asset,
+                    wallet,
+                    *from_quantity,
+                    *value,
+                    *timestamp,
+                )?;
                 // Acquisition of the received leg; basis = FMV + fee.
-                self.acquire(orig_index, to_asset, wallet, *to_quantity, *value + *fee, *timestamp, None);
+                self.acquire(
+                    orig_index,
+                    to_asset,
+                    wallet,
+                    *to_quantity,
+                    *value + *fee,
+                    *timestamp,
+                    None,
+                );
             }
-            Transaction::Spend { timestamp, wallet, asset, quantity, value, fee } => {
+            Transaction::Spend {
+                timestamp,
+                wallet,
+                asset,
+                quantity,
+                value,
+                fee,
+            } => {
                 let proceeds = *value - *fee;
                 self.dispose(orig_index, asset, wallet, *quantity, proceeds, *timestamp)?;
             }
-            Transaction::Transfer { timestamp, asset, quantity, from_wallet, to_wallet, fee, fee_value } => {
+            Transaction::Transfer {
+                timestamp,
+                asset,
+                quantity,
+                from_wallet,
+                to_wallet,
+                fee,
+                fee_value,
+            } => {
                 let available = self.available(asset, from_wallet);
                 if *quantity + *fee > available {
                     return Err(PortfolioError::InsufficientTransfer {
@@ -405,7 +500,12 @@ impl<'a> Engine<'a> {
                     });
                 }
             }
-            Transaction::GiftSent { timestamp, wallet, asset, quantity } => {
+            Transaction::GiftSent {
+                timestamp,
+                wallet,
+                asset,
+                quantity,
+            } => {
                 // Non-taxable: remove lots (no realized gain), discard them.
                 let _ = self.take(asset, wallet, *quantity)?;
                 let _ = timestamp;
@@ -417,7 +517,11 @@ impl<'a> Engine<'a> {
     fn finish(self) -> EngineOutput {
         let mut holdings: Vec<Lot> = self.pools.into_values().flatten().collect();
         holdings.sort_by(|a, b| a.lot_id.cmp(&b.lot_id));
-        EngineOutput { realized: self.realized, income: self.income, holdings }
+        EngineOutput {
+            realized: self.realized,
+            income: self.income,
+            holdings,
+        }
     }
 }
 
@@ -450,13 +554,31 @@ mod tests {
     #[test]
     fn fifo_sell_consumes_oldest_lot_with_term() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Buy { timestamp: ts(2021, 6, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(300), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2020, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Buy {
+                timestamp: ts(2021, 6, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(300),
+                fee: dec!(0),
+            },
             // Sell 1 BTC at 500 in 2022; FIFO consumes the 2020 lot (long-term).
-            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+            Transaction::Sell {
+                timestamp: ts(2022, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(500),
+                fee: dec!(0),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         assert_eq!(out.realized.len(), 1);
@@ -473,10 +595,22 @@ mod tests {
     #[test]
     fn buy_fee_folds_into_basis() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "eth".into(),
-                quantity: dec!(2), unit_price: dec!(100), fee: dec!(10) },
-            Transaction::Sell { timestamp: ts(2021, 2, 1), wallet: "w".into(), asset: "eth".into(),
-                quantity: dec!(1), unit_price: dec!(150), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "eth".into(),
+                quantity: dec!(2),
+                unit_price: dec!(100),
+                fee: dec!(10),
+            },
+            Transaction::Sell {
+                timestamp: ts(2021, 2, 1),
+                wallet: "w".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                unit_price: dec!(150),
+                fee: dec!(0),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         // Lot basis = 2*100 + 10 = 210; per unit 105; selling 1 -> basis 105.
@@ -487,23 +621,50 @@ mod tests {
     #[test]
     fn oversell_errors_per_wallet() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "hot".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "hot".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
             // Selling from a different wallet that holds nothing.
-            Transaction::Sell { timestamp: ts(2021, 2, 1), wallet: "cold".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(150), fee: dec!(0) },
+            Transaction::Sell {
+                timestamp: ts(2021, 2, 1),
+                wallet: "cold".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(150),
+                fee: dec!(0),
+            },
         ];
         let err = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap_err();
-        assert!(matches!(err, crate::error::PortfolioError::InsufficientLots { .. }));
+        assert!(matches!(
+            err,
+            crate::error::PortfolioError::InsufficientLots { .. }
+        ));
     }
 
     #[test]
     fn income_records_event_and_sets_basis() {
         let txs = vec![
-            Transaction::Income { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "eth".into(),
-                quantity: dec!(1), value: dec!(50), source: crate::transaction::IncomeSource::Staking },
-            Transaction::Sell { timestamp: ts(2021, 2, 1), wallet: "w".into(), asset: "eth".into(),
-                quantity: dec!(1), unit_price: dec!(70), fee: dec!(0) },
+            Transaction::Income {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                value: dec!(50),
+                source: crate::transaction::IncomeSource::Staking,
+            },
+            Transaction::Sell {
+                timestamp: ts(2021, 2, 1),
+                wallet: "w".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                unit_price: dec!(70),
+                fee: dec!(0),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         assert_eq!(out.income.len(), 1);
@@ -515,36 +676,81 @@ mod tests {
     #[test]
     fn average_pools_basis_and_drops_term() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(300), fee: dec!(0) },
-            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2020, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(300),
+                fee: dec!(0),
+            },
+            Transaction::Sell {
+                timestamp: ts(2022, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(500),
+                fee: dec!(0),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Average)).unwrap();
         // avg cost = (100+300)/2 = 200 -> gain = 300
         assert_eq!(out.realized[0].cost_basis, dec!(200));
         assert_eq!(out.realized[0].gain, dec!(300));
         assert_eq!(out.realized[0].term, None);
-        assert_eq!(out.holdings.iter().map(|l| l.quantity).sum::<Decimal>(), dec!(1));
+        assert_eq!(
+            out.holdings.iter().map(|l| l.quantity).sum::<Decimal>(),
+            dec!(1)
+        );
     }
 
     #[test]
     fn specific_id_consumes_named_acquisition() {
         let txs = vec![
             // index 0: cheap lot
-            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2020, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
             // index 1: expensive lot
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(400), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(400),
+                fee: dec!(0),
+            },
             // index 2: sell 1, specifically the expensive lot (index 1)
-            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+            Transaction::Sell {
+                timestamp: ts(2022, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(500),
+                fee: dec!(0),
+            },
         ];
         let mut sel: crate::method::LotSelection = std::collections::HashMap::new();
-        sel.insert(2, vec![crate::method::LotPick { acquisition_index: 1, quantity: dec!(1) }]);
+        sel.insert(
+            2,
+            vec![crate::method::LotPick {
+                acquisition_index: 1,
+                quantity: dec!(1),
+            }],
+        );
         let out = run(&txs, Strategy::Specific(&sel)).unwrap();
         assert_eq!(out.realized[0].cost_basis, dec!(400));
         assert_eq!(out.realized[0].gain, dec!(100));
@@ -553,28 +759,61 @@ mod tests {
     #[test]
     fn specific_id_missing_selection_errors() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2020, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Sell {
+                timestamp: ts(2022, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(500),
+                fee: dec!(0),
+            },
         ];
         let sel: crate::method::LotSelection = std::collections::HashMap::new();
         let err = run(&txs, Strategy::Specific(&sel)).unwrap_err();
-        assert!(matches!(err, crate::error::PortfolioError::MissingLotSelection { .. }));
+        assert!(matches!(
+            err,
+            crate::error::PortfolioError::MissingLotSelection { .. }
+        ));
     }
 
     #[test]
     fn trade_disposes_from_leg_and_opens_to_leg() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
             // Trade 1 BTC (FMV 500) for 10 ETH, fee 5 -> ETH basis = 505.
-            Transaction::Trade { timestamp: ts(2021, 6, 1), wallet: "w".into(),
-                from_asset: "btc".into(), from_quantity: dec!(1),
-                to_asset: "eth".into(), to_quantity: dec!(10),
-                value: dec!(500), fee: dec!(5) },
-            Transaction::Sell { timestamp: ts(2021, 7, 1), wallet: "w".into(), asset: "eth".into(),
-                quantity: dec!(10), unit_price: dec!(60), fee: dec!(0) },
+            Transaction::Trade {
+                timestamp: ts(2021, 6, 1),
+                wallet: "w".into(),
+                from_asset: "btc".into(),
+                from_quantity: dec!(1),
+                to_asset: "eth".into(),
+                to_quantity: dec!(10),
+                value: dec!(500),
+                fee: dec!(5),
+            },
+            Transaction::Sell {
+                timestamp: ts(2021, 7, 1),
+                wallet: "w".into(),
+                asset: "eth".into(),
+                quantity: dec!(10),
+                unit_price: dec!(60),
+                fee: dec!(0),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         // First realized: BTC disposal, proceeds 500, basis 100, gain 400.
@@ -589,10 +828,22 @@ mod tests {
     #[test]
     fn spend_is_a_disposal_at_fmv() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Spend { timestamp: ts(2021, 2, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), value: dec!(180), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Spend {
+                timestamp: ts(2021, 2, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                value: dec!(180),
+                fee: dec!(0),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         assert_eq!(out.realized[0].proceeds, dec!(180));
@@ -602,14 +853,33 @@ mod tests {
     #[test]
     fn transfer_preserves_basis_and_acquisition_date() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "hot".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2020, 1, 1),
+                wallet: "hot".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
             // Move to cold wallet in 2020, no fee.
-            Transaction::Transfer { timestamp: ts(2020, 6, 1), asset: "btc".into(), quantity: dec!(1),
-                from_wallet: "hot".into(), to_wallet: "cold".into(), fee: dec!(0), fee_value: dec!(0) },
+            Transaction::Transfer {
+                timestamp: ts(2020, 6, 1),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                from_wallet: "hot".into(),
+                to_wallet: "cold".into(),
+                fee: dec!(0),
+                fee_value: dec!(0),
+            },
             // Sell from cold in 2022; term must be Long, measured from 2020-01-01.
-            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "cold".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+            Transaction::Sell {
+                timestamp: ts(2022, 1, 1),
+                wallet: "cold".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(500),
+                fee: dec!(0),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         assert_eq!(out.realized.len(), 1);
@@ -621,31 +891,65 @@ mod tests {
     #[test]
     fn transfer_fee_is_a_disposal() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "hot".into(), asset: "eth".into(),
-                quantity: dec!(10), unit_price: dec!(10), fee: dec!(0) }, // basis 100, per-unit 10
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "hot".into(),
+                asset: "eth".into(),
+                quantity: dec!(10),
+                unit_price: dec!(10),
+                fee: dec!(0),
+            }, // basis 100, per-unit 10
             // Move 9, burn 1 as fee at FMV 15.
-            Transaction::Transfer { timestamp: ts(2021, 2, 1), asset: "eth".into(), quantity: dec!(9),
-                from_wallet: "hot".into(), to_wallet: "cold".into(), fee: dec!(1), fee_value: dec!(15) },
+            Transaction::Transfer {
+                timestamp: ts(2021, 2, 1),
+                asset: "eth".into(),
+                quantity: dec!(9),
+                from_wallet: "hot".into(),
+                to_wallet: "cold".into(),
+                fee: dec!(1),
+                fee_value: dec!(15),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         // Fee disposal: 1 unit, basis 10, proceeds 15, gain 5.
         assert_eq!(out.realized.len(), 1);
         assert_eq!(out.realized[0].gain, dec!(5));
         // 9 units now in cold wallet, basis 90.
-        let cold: Decimal = out.holdings.iter().filter(|l| l.wallet == "cold").map(|l| l.cost_basis).sum();
+        let cold: Decimal = out
+            .holdings
+            .iter()
+            .filter(|l| l.wallet == "cold")
+            .map(|l| l.cost_basis)
+            .sum();
         assert_eq!(cold, dec!(90));
     }
 
     #[test]
     fn transfer_insufficient_balance_errors() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "hot".into(), asset: "eth".into(),
-                quantity: dec!(1), unit_price: dec!(10), fee: dec!(0) },
-            Transaction::Transfer { timestamp: ts(2021, 2, 1), asset: "eth".into(), quantity: dec!(1),
-                from_wallet: "hot".into(), to_wallet: "cold".into(), fee: dec!(1), fee_value: dec!(15) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "hot".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                unit_price: dec!(10),
+                fee: dec!(0),
+            },
+            Transaction::Transfer {
+                timestamp: ts(2021, 2, 1),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                from_wallet: "hot".into(),
+                to_wallet: "cold".into(),
+                fee: dec!(1),
+                fee_value: dec!(15),
+            },
         ];
         let err = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap_err();
-        assert!(matches!(err, crate::error::PortfolioError::InsufficientTransfer { .. }));
+        assert!(matches!(
+            err,
+            crate::error::PortfolioError::InsufficientTransfer { .. }
+        ));
     }
 
     fn gift_received(qty: i64, donor_basis: i64, fmv: i64, donor_day_year: i32) -> Transaction {
@@ -663,14 +967,27 @@ mod tests {
     #[test]
     fn gift_sent_removes_lots_without_gain() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(2), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::GiftSent { timestamp: ts(2021, 2, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(2),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::GiftSent {
+                timestamp: ts(2021, 2, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         assert!(out.realized.is_empty());
-        assert_eq!(out.holdings.iter().map(|l| l.quantity).sum::<Decimal>(), dec!(1));
+        assert_eq!(
+            out.holdings.iter().map(|l| l.quantity).sum::<Decimal>(),
+            dec!(1)
+        );
     }
 
     #[test]
@@ -678,8 +995,14 @@ mod tests {
         // donor_basis 100, fmv 120; sell at 200 -> gain = 100 (carryover basis).
         let txs = vec![
             gift_received(1, 100, 120, 2018),
-            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(200), fee: dec!(0) },
+            Transaction::Sell {
+                timestamp: ts(2022, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(200),
+                fee: dec!(0),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         assert_eq!(out.realized[0].cost_basis, dec!(100));
@@ -693,8 +1016,14 @@ mod tests {
         // donor_basis 100, fmv 80; sell at 50 -> loss vs 80 = -30.
         let txs = vec![
             gift_received(1, 100, 80, 2018),
-            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(50), fee: dec!(0) },
+            Transaction::Sell {
+                timestamp: ts(2022, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(50),
+                fee: dec!(0),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         assert_eq!(out.realized[0].cost_basis, dec!(80));
@@ -706,8 +1035,14 @@ mod tests {
         // donor_basis 100, fmv 80; sell at 90 (between 80 and 100) -> gain 0.
         let txs = vec![
             gift_received(1, 100, 80, 2018),
-            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(90), fee: dec!(0) },
+            Transaction::Sell {
+                timestamp: ts(2022, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(90),
+                fee: dec!(0),
+            },
         ];
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         assert_eq!(out.realized[0].gain, dec!(0));
@@ -716,12 +1051,25 @@ mod tests {
     #[test]
     fn gift_sent_over_balance_errors_not_panics() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::GiftSent { timestamp: ts(2021, 2, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(5) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::GiftSent {
+                timestamp: ts(2021, 2, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(5),
+            },
         ];
         let err = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap_err();
-        assert!(matches!(err, crate::error::PortfolioError::InsufficientLots { .. }));
+        assert!(matches!(
+            err,
+            crate::error::PortfolioError::InsufficientLots { .. }
+        ));
     }
 }

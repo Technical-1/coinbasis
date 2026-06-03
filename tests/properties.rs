@@ -1,7 +1,7 @@
 //! Property tests: invariants that must hold for any random buy/sell ledger.
 
-use coinbasis::{CostBasisMethod, Portfolio, Transaction};
 use chrono::{Duration, TimeZone, Utc};
+use coinbasis::{CostBasisMethod, Portfolio, Transaction};
 use proptest::prelude::*;
 use rust_decimal::Decimal;
 
@@ -17,7 +17,7 @@ proptest! {
         sell_frac in 0u32..=100,
     ) {
         let total_qty: u32 = buys.iter().map(|(q, _)| *q).sum();
-        let sell_qty = (total_qty * sell_frac / 100).max(0);
+        let sell_qty = total_qty * sell_frac / 100;
 
         let mut txs: Vec<Transaction> = Vec::new();
         let mut day = 0i64;

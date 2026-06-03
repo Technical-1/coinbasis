@@ -45,9 +45,13 @@ mod tests {
     #[test]
     fn cost_basis_per_unit_divides() {
         let lot = Lot {
-            asset: "btc".into(), wallet: "w".into(), quantity: dec!(2),
-            cost_basis: dec!(100), acquired_at: Utc.with_ymd_and_hms(2021,1,1,0,0,0).unwrap(),
-            lot_id: 1, gift: None,
+            asset: "btc".into(),
+            wallet: "w".into(),
+            quantity: dec!(2),
+            cost_basis: dec!(100),
+            acquired_at: Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
+            lot_id: 1,
+            gift: None,
         };
         assert_eq!(lot.cost_basis_per_unit(), dec!(50));
     }

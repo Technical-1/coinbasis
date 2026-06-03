@@ -44,12 +44,18 @@ pub(crate) fn order_for(method: CostBasisMethod, lots: &[Lot]) -> Vec<usize> {
     match method {
         CostBasisMethod::Fifo => {
             idx.sort_by(|&a, &b| {
-                lots[a].acquired_at.cmp(&lots[b].acquired_at).then(lots[a].lot_id.cmp(&lots[b].lot_id))
+                lots[a]
+                    .acquired_at
+                    .cmp(&lots[b].acquired_at)
+                    .then(lots[a].lot_id.cmp(&lots[b].lot_id))
             });
         }
         CostBasisMethod::Lifo => {
             idx.sort_by(|&a, &b| {
-                lots[b].acquired_at.cmp(&lots[a].acquired_at).then(lots[b].lot_id.cmp(&lots[a].lot_id))
+                lots[b]
+                    .acquired_at
+                    .cmp(&lots[a].acquired_at)
+                    .then(lots[b].lot_id.cmp(&lots[a].lot_id))
             });
         }
         CostBasisMethod::Hifo => {
@@ -64,7 +70,10 @@ pub(crate) fn order_for(method: CostBasisMethod, lots: &[Lot]) -> Vec<usize> {
         // FIFO order so callers that ask for an order still get a stable one.
         CostBasisMethod::Average | CostBasisMethod::SpecificId => {
             idx.sort_by(|&a, &b| {
-                lots[a].acquired_at.cmp(&lots[b].acquired_at).then(lots[a].lot_id.cmp(&lots[b].lot_id))
+                lots[a]
+                    .acquired_at
+                    .cmp(&lots[b].acquired_at)
+                    .then(lots[a].lot_id.cmp(&lots[b].lot_id))
             });
         }
     }
@@ -81,10 +90,13 @@ mod tests {
 
     fn lot(id: u64, day: u32, basis: i64, qty: i64) -> Lot {
         Lot {
-            asset: "btc".into(), wallet: "w".into(), quantity: dec!(0) + Decimal::from(qty),
+            asset: "btc".into(),
+            wallet: "w".into(),
+            quantity: dec!(0) + Decimal::from(qty),
             cost_basis: Decimal::from(basis),
             acquired_at: Utc.with_ymd_and_hms(2021, 1, day, 0, 0, 0).unwrap(),
-            lot_id: id, gift: None,
+            lot_id: id,
+            gift: None,
         }
     }
 

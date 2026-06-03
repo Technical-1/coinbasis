@@ -1,13 +1,16 @@
 //! The public [`Portfolio`] facade: stores an immutable ledger and answers
 //! cost-basis, income, holdings, valuation, and tax-report queries.
 
-use chrono::Datelike;
 use crate::engine::{run, Strategy};
 use crate::error::PortfolioError;
 use crate::lot::Lot;
 use crate::method::{CostBasisMethod, LotSelection};
-use crate::report::{AssetValuation, CapitalGainsReport, Holding, IncomeEvent, IncomeReport, PortfolioReport, RealizedGain, Term};
+use crate::report::{
+    AssetValuation, CapitalGainsReport, Holding, IncomeEvent, IncomeReport, PortfolioReport,
+    RealizedGain, Term,
+};
 use crate::transaction::Transaction;
+use chrono::Datelike;
 use rust_decimal::Decimal;
 use std::collections::{BTreeMap, HashMap};
 
@@ -42,7 +45,10 @@ impl Portfolio {
 
     /// Realized capital-gain rows under an automatic method. Returns
     /// [`PortfolioError::SelectionRequired`] for `SpecificId`.
-    pub fn realized_gains(&self, method: CostBasisMethod) -> Result<Vec<RealizedGain>, PortfolioError> {
+    pub fn realized_gains(
+        &self,
+        method: CostBasisMethod,
+    ) -> Result<Vec<RealizedGain>, PortfolioError> {
         if method == CostBasisMethod::SpecificId {
             return Err(PortfolioError::SelectionRequired);
         }
@@ -50,7 +56,10 @@ impl Portfolio {
     }
 
     /// Realized capital-gain rows using a Specific-ID selection.
-    pub fn realized_gains_with_selection(&self, selection: &LotSelection) -> Result<Vec<RealizedGain>, PortfolioError> {
+    pub fn realized_gains_with_selection(
+        &self,
+        selection: &LotSelection,
+    ) -> Result<Vec<RealizedGain>, PortfolioError> {
         Ok(run(&self.txs, Strategy::Specific(selection))?.realized)
     }
 
@@ -61,16 +70,21 @@ impl Portfolio {
         self.txs
             .iter()
             .filter_map(|tx| match tx {
-                Transaction::Income { timestamp, wallet, asset, quantity, value, source } => {
-                    Some(IncomeEvent {
-                        asset: asset.clone(),
-                        wallet: wallet.clone(),
-                        received_at: *timestamp,
-                        quantity: *quantity,
-                        value: *value,
-                        source: *source,
-                    })
-                }
+                Transaction::Income {
+                    timestamp,
+                    wallet,
+                    asset,
+                    quantity,
+                    value,
+                    source,
+                } => Some(IncomeEvent {
+                    asset: asset.clone(),
+                    wallet: wallet.clone(),
+                    received_at: *timestamp,
+                    quantity: *quantity,
+                    value: *value,
+                    source: *source,
+                }),
                 _ => None,
             })
             .collect()
@@ -81,7 +95,11 @@ impl Portfolio {
         if method == CostBasisMethod::SpecificId {
             return Err(PortfolioError::SelectionRequired);
         }
-        Ok(run(&self.txs, Strategy::Auto(method))?.holdings.iter().map(to_holding).collect())
+        Ok(run(&self.txs, Strategy::Auto(method))?
+            .holdings
+            .iter()
+            .map(to_holding)
+            .collect())
     }
 
     /// Value current holdings at supplied prices, aggregating per asset across
@@ -97,7 +115,9 @@ impl Portfolio {
         // Aggregate quantity + basis per asset (BTreeMap for stable ordering).
         let mut agg: BTreeMap<String, (Decimal, Decimal)> = BTreeMap::new();
         for h in &holdings {
-            let e = agg.entry(h.asset.clone()).or_insert((Decimal::ZERO, Decimal::ZERO));
+            let e = agg
+                .entry(h.asset.clone())
+                .or_insert((Decimal::ZERO, Decimal::ZERO));
             e.0 += h.quantity;
             e.1 += h.cost_basis;
         }
@@ -178,8 +198,10 @@ impl Portfolio {
     }
 
     fn build_gains_report(realized: Vec<RealizedGain>, tax_year: i32) -> CapitalGainsReport {
-        let rows: Vec<RealizedGain> =
-            realized.into_iter().filter(|r| r.disposed_at.year() == tax_year).collect();
+        let rows: Vec<RealizedGain> = realized
+            .into_iter()
+            .filter(|r| r.disposed_at.year() == tax_year)
+            .collect();
         let mut short_term_gain = Decimal::ZERO;
         let mut long_term_gain = Decimal::ZERO;
         let mut total_gain = Decimal::ZERO;
@@ -191,15 +213,28 @@ impl Portfolio {
                 None => {} // Average: untermed; counted only in total_gain.
             }
         }
-        CapitalGainsReport { tax_year, rows, short_term_gain, long_term_gain, total_gain }
+        CapitalGainsReport {
+            tax_year,
+            rows,
+            short_term_gain,
+            long_term_gain,
+            total_gain,
+        }
     }
 
     /// Ordinary-income report for one calendar tax year (UTC).
     pub fn income_report(&self, tax_year: i32) -> IncomeReport {
-        let events: Vec<IncomeEvent> =
-            self.income_events().into_iter().filter(|e| e.received_at.year() == tax_year).collect();
+        let events: Vec<IncomeEvent> = self
+            .income_events()
+            .into_iter()
+            .filter(|e| e.received_at.year() == tax_year)
+            .collect();
         let total_income = events.iter().map(|e| e.value).sum();
-        IncomeReport { tax_year, events, total_income }
+        IncomeReport {
+            tax_year,
+            events,
+            total_income,
+        }
     }
 }
 
@@ -218,17 +253,35 @@ mod tests {
 
     fn sample() -> Vec<Transaction> {
         vec![
-            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2020, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Sell {
+                timestamp: ts(2022, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(500),
+                fee: dec!(0),
+            },
         ]
     }
 
     #[test]
     fn from_transactions_validates() {
-        let bad = vec![Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(),
-            asset: "btc".into(), quantity: dec!(0), unit_price: dec!(100), fee: dec!(0) }];
+        let bad = vec![Transaction::Buy {
+            timestamp: ts(2020, 1, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(0),
+            unit_price: dec!(100),
+            fee: dec!(0),
+        }];
         assert!(Portfolio::from_transactions(&bad).is_err());
     }
 
@@ -253,15 +306,27 @@ mod tests {
     fn realized_gains_with_selection_works() {
         let p = Portfolio::from_transactions(&sample()).unwrap();
         let mut sel: LotSelection = HashMap::new();
-        sel.insert(1, vec![LotPick { acquisition_index: 0, quantity: dec!(1) }]);
+        sel.insert(
+            1,
+            vec![LotPick {
+                acquisition_index: 0,
+                quantity: dec!(1),
+            }],
+        );
         let g = p.realized_gains_with_selection(&sel).unwrap();
         assert_eq!(g[0].gain, dec!(400));
     }
 
     #[test]
     fn holdings_reports_open_positions() {
-        let txs = vec![Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(),
-            asset: "eth".into(), quantity: dec!(2), unit_price: dec!(50), fee: dec!(0) }];
+        let txs = vec![Transaction::Buy {
+            timestamp: ts(2021, 1, 1),
+            wallet: "w".into(),
+            asset: "eth".into(),
+            quantity: dec!(2),
+            unit_price: dec!(50),
+            fee: dec!(0),
+        }];
         let p = Portfolio::from_transactions(&txs).unwrap();
         let h = p.holdings(CostBasisMethod::Fifo).unwrap();
         assert_eq!(h.len(), 1);
@@ -272,12 +337,30 @@ mod tests {
     #[test]
     fn valuation_aggregates_and_flags_missing_prices() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "a".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Buy { timestamp: ts(2021, 1, 2), wallet: "b".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(140), fee: dec!(0) },
-            Transaction::Buy { timestamp: ts(2021, 1, 3), wallet: "a".into(), asset: "eth".into(),
-                quantity: dec!(1), unit_price: dec!(50), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "a".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 2),
+                wallet: "b".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(140),
+                fee: dec!(0),
+            },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 3),
+                wallet: "a".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                unit_price: dec!(50),
+                fee: dec!(0),
+            },
         ];
         let p = Portfolio::from_transactions(&txs).unwrap();
         let mut prices = HashMap::new();
@@ -298,16 +381,40 @@ mod tests {
     #[test]
     fn capital_gains_report_filters_year_and_splits_terms() {
         let txs = vec![
-            Transaction::Buy { timestamp: ts(2019, 1, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(2), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2019, 1, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(2),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
             // Long-term sale in 2021 (held > 1y): gain 400.
-            Transaction::Sell { timestamp: ts(2021, 3, 1), wallet: "w".into(), asset: "btc".into(),
-                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+            Transaction::Sell {
+                timestamp: ts(2021, 3, 1),
+                wallet: "w".into(),
+                asset: "btc".into(),
+                quantity: dec!(1),
+                unit_price: dec!(500),
+                fee: dec!(0),
+            },
             // Short-term: buy and sell within 2021: basis 100, proceeds 130 -> gain 30.
-            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "eth".into(),
-                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
-            Transaction::Sell { timestamp: ts(2021, 6, 1), wallet: "w".into(), asset: "eth".into(),
-                quantity: dec!(1), unit_price: dec!(130), fee: dec!(0) },
+            Transaction::Buy {
+                timestamp: ts(2021, 1, 1),
+                wallet: "w".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                unit_price: dec!(100),
+                fee: dec!(0),
+            },
+            Transaction::Sell {
+                timestamp: ts(2021, 6, 1),
+                wallet: "w".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                unit_price: dec!(130),
+                fee: dec!(0),
+            },
         ];
         let p = Portfolio::from_transactions(&txs).unwrap();
         let r = p.capital_gains_report(CostBasisMethod::Fifo, 2021).unwrap();
@@ -320,10 +427,22 @@ mod tests {
     #[test]
     fn income_report_filters_year() {
         let txs = vec![
-            Transaction::Income { timestamp: ts(2020, 5, 1), wallet: "w".into(), asset: "eth".into(),
-                quantity: dec!(1), value: dec!(40), source: crate::transaction::IncomeSource::Staking },
-            Transaction::Income { timestamp: ts(2021, 5, 1), wallet: "w".into(), asset: "eth".into(),
-                quantity: dec!(1), value: dec!(60), source: crate::transaction::IncomeSource::Airdrop },
+            Transaction::Income {
+                timestamp: ts(2020, 5, 1),
+                wallet: "w".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                value: dec!(40),
+                source: crate::transaction::IncomeSource::Staking,
+            },
+            Transaction::Income {
+                timestamp: ts(2021, 5, 1),
+                wallet: "w".into(),
+                asset: "eth".into(),
+                quantity: dec!(1),
+                value: dec!(60),
+                source: crate::transaction::IncomeSource::Airdrop,
+            },
         ];
         let p = Portfolio::from_transactions(&txs).unwrap();
         let r = p.income_report(2021);
