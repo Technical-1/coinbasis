@@ -256,6 +256,15 @@ impl<'a> Engine<'a> {
     /// Uses the active method's ordering (Average pools; SpecificId falls back to
     /// FIFO, since moves are non-taxable and need no caller selection).
     fn take(&mut self, asset: &str, wallet: &str, quantity: Decimal) -> Result<Vec<Consumed>, PortfolioError> {
+        let available = self.available(asset, wallet);
+        if quantity > available {
+            return Err(PortfolioError::InsufficientLots {
+                asset: asset.to_string(),
+                wallet: wallet.to_string(),
+                attempted: quantity,
+                available,
+            });
+        }
         let method = match self.strategy.method() {
             CostBasisMethod::Average => CostBasisMethod::Average,
             _ => CostBasisMethod::Fifo,
@@ -396,8 +405,11 @@ impl<'a> Engine<'a> {
                     });
                 }
             }
-            // GiftSent handled in Task 12.
-            _ => unimplemented!("handled in a later task"),
+            Transaction::GiftSent { timestamp, wallet, asset, quantity } => {
+                // Non-taxable: remove lots (no realized gain), discard them.
+                let _ = self.take(asset, wallet, *quantity)?;
+                let _ = timestamp;
+            }
         }
         Ok(())
     }
@@ -634,5 +646,82 @@ mod tests {
         ];
         let err = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap_err();
         assert!(matches!(err, crate::error::PortfolioError::InsufficientTransfer { .. }));
+    }
+
+    fn gift_received(qty: i64, donor_basis: i64, fmv: i64, donor_day_year: i32) -> Transaction {
+        Transaction::GiftReceived {
+            timestamp: ts(2021, 6, 1),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: Decimal::from(qty),
+            donor_basis: Decimal::from(donor_basis),
+            fmv_at_receipt: Decimal::from(fmv),
+            donor_acquired_at: ts(donor_day_year, 1, 1),
+        }
+    }
+
+    #[test]
+    fn gift_sent_removes_lots_without_gain() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(2), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::GiftSent { timestamp: ts(2021, 2, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
+        assert!(out.realized.is_empty());
+        assert_eq!(out.holdings.iter().map(|l| l.quantity).sum::<Decimal>(), dec!(1));
+    }
+
+    #[test]
+    fn gift_gain_uses_donor_basis() {
+        // donor_basis 100, fmv 120; sell at 200 -> gain = 100 (carryover basis).
+        let txs = vec![
+            gift_received(1, 100, 120, 2018),
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(200), fee: dec!(0) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
+        assert_eq!(out.realized[0].cost_basis, dec!(100));
+        assert_eq!(out.realized[0].gain, dec!(100));
+        // Holding period tacks from donor's 2018 date -> Long.
+        assert_eq!(out.realized[0].term, Some(crate::report::Term::Long));
+    }
+
+    #[test]
+    fn gift_loss_uses_lesser_of_basis_or_fmv() {
+        // donor_basis 100, fmv 80; sell at 50 -> loss vs 80 = -30.
+        let txs = vec![
+            gift_received(1, 100, 80, 2018),
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(50), fee: dec!(0) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
+        assert_eq!(out.realized[0].cost_basis, dec!(80));
+        assert_eq!(out.realized[0].gain, dec!(-30));
+    }
+
+    #[test]
+    fn gift_dead_zone_realizes_nothing() {
+        // donor_basis 100, fmv 80; sell at 90 (between 80 and 100) -> gain 0.
+        let txs = vec![
+            gift_received(1, 100, 80, 2018),
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(90), fee: dec!(0) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
+        assert_eq!(out.realized[0].gain, dec!(0));
+    }
+
+    #[test]
+    fn gift_sent_over_balance_errors_not_panics() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::GiftSent { timestamp: ts(2021, 2, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(5) },
+        ];
+        let err = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap_err();
+        assert!(matches!(err, crate::error::PortfolioError::InsufficientLots { .. }));
     }
 }
