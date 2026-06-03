@@ -381,4 +381,61 @@ mod tests {
         };
         assert_eq!(b.validate(), Ok(()));
     }
+
+    #[test]
+    fn validate_rejects_negative_unit_price() {
+        let b = Transaction::Buy {
+            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+            quantity: dec!(1), unit_price: dec!(-1), fee: dec!(0),
+        };
+        assert_eq!(b.validate(), Err(PortfolioError::NegativeValue { asset: "btc".into() }));
+    }
+
+    #[test]
+    fn validate_rejects_negative_gift_fmv() {
+        let g = Transaction::GiftReceived {
+            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+            quantity: dec!(1), donor_basis: dec!(10), fmv_at_receipt: dec!(-5),
+            donor_acquired_at: ts(2018, 1, 1),
+        };
+        assert_eq!(g.validate(), Err(PortfolioError::NegativeValue { asset: "btc".into() }));
+    }
+
+    #[test]
+    fn validate_rejects_negative_transfer_fee_value() {
+        let t = Transaction::Transfer {
+            timestamp: ts(2021, 1, 1), asset: "btc".into(), quantity: dec!(1),
+            from_wallet: "a".into(), to_wallet: "b".into(), fee: dec!(1), fee_value: dec!(-1),
+        };
+        assert_eq!(t.validate(), Err(PortfolioError::NegativeValue { asset: "btc".into() }));
+    }
+
+    #[test]
+    fn validate_rejects_non_positive_trade_leg() {
+        let tr = Transaction::Trade {
+            timestamp: ts(2021, 1, 1), wallet: "w".into(),
+            from_asset: "btc".into(), from_quantity: dec!(0),
+            to_asset: "eth".into(), to_quantity: dec!(10),
+            value: dec!(500), fee: dec!(0),
+        };
+        assert_eq!(
+            tr.validate(),
+            Err(PortfolioError::NonPositiveQuantity { asset: "btc".into(), quantity: dec!(0) })
+        );
+    }
+
+    #[test]
+    fn validate_accepts_well_formed_gift_and_transfer() {
+        let g = Transaction::GiftReceived {
+            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+            quantity: dec!(1), donor_basis: dec!(10), fmv_at_receipt: dec!(12),
+            donor_acquired_at: ts(2018, 1, 1),
+        };
+        assert_eq!(g.validate(), Ok(()));
+        let t = Transaction::Transfer {
+            timestamp: ts(2021, 1, 1), asset: "btc".into(), quantity: dec!(1),
+            from_wallet: "a".into(), to_wallet: "b".into(), fee: dec!(0), fee_value: dec!(0),
+        };
+        assert_eq!(t.validate(), Ok(()));
+    }
 }

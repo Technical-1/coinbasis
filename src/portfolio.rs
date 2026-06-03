@@ -614,4 +614,162 @@ mod tests {
         assert_eq!(r.events.len(), 1);
         assert_eq!(r.total_income, dec!(60));
     }
+
+    fn two_lots() -> Vec<Transaction> {
+        vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(300), fee: dec!(0) },
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+        ]
+    }
+
+    fn gain_sum(method: CostBasisMethod) -> rust_decimal::Decimal {
+        let p = Portfolio::from_transactions(&two_lots()).unwrap();
+        p.realized_gains(method).unwrap().iter().map(|g| g.gain).sum()
+    }
+
+    #[test]
+    fn realized_gains_lifo_and_hifo_and_average_through_facade() {
+        assert_eq!(gain_sum(CostBasisMethod::Lifo), dec!(200));
+        assert_eq!(gain_sum(CostBasisMethod::Hifo), dec!(200));
+        assert_eq!(gain_sum(CostBasisMethod::Average), dec!(300));
+    }
+
+    #[test]
+    fn holdings_under_average_pools_to_one_lot() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(300), fee: dec!(0) },
+        ];
+        let p = Portfolio::from_transactions(&txs).unwrap();
+        let h = p.holdings(CostBasisMethod::Average).unwrap();
+        // Average pools only at disposal time; with no sells both lots remain open.
+        assert_eq!(h.len(), 2);
+        let total_qty: rust_decimal::Decimal = h.iter().map(|lot| lot.quantity).sum();
+        let total_basis: rust_decimal::Decimal = h.iter().map(|lot| lot.cost_basis).sum();
+        assert_eq!(total_qty, dec!(2));
+        assert_eq!(total_basis, dec!(400));
+    }
+
+    #[test]
+    fn holdings_rejects_specific_id() {
+        let p = Portfolio::from_transactions(&sample()).unwrap();
+        assert!(matches!(
+            p.holdings(CostBasisMethod::SpecificId),
+            Err(crate::error::PortfolioError::SelectionRequired)
+        ));
+    }
+
+    #[test]
+    fn capital_gains_report_rejects_specific_id() {
+        let p = Portfolio::from_transactions(&sample()).unwrap();
+        assert!(matches!(
+            p.capital_gains_report(CostBasisMethod::SpecificId, 2022),
+            Err(crate::error::PortfolioError::SelectionRequired)
+        ));
+    }
+
+    #[test]
+    fn capital_gains_report_with_selection_filters_and_totals() {
+        let p = Portfolio::from_transactions(&sample()).unwrap();
+        let mut sel: LotSelection = HashMap::new();
+        sel.insert(1, vec![LotPick { acquisition_index: 0, quantity: dec!(1) }]);
+        let r = p.capital_gains_report_with_selection(&sel, 2022).unwrap();
+        assert_eq!(r.rows.len(), 1);
+        assert_eq!(r.total_gain, dec!(400));
+        assert_eq!(r.long_term_gain, dec!(400));
+        let empty = p.capital_gains_report_with_selection(&sel, 2030).unwrap();
+        assert!(empty.rows.is_empty());
+        assert_eq!(empty.total_gain, dec!(0));
+    }
+
+    #[test]
+    fn capital_gains_report_average_is_untermed() {
+        let p = Portfolio::from_transactions(&two_lots()).unwrap();
+        let r = p.capital_gains_report(CostBasisMethod::Average, 2022).unwrap();
+        assert_eq!(r.total_gain, dec!(300));
+        assert_eq!(r.short_term_gain, dec!(0));
+        assert_eq!(r.long_term_gain, dec!(0));
+    }
+
+    #[test]
+    fn income_events_returns_each_income_row() {
+        let txs = vec![
+            Transaction::Income { timestamp: ts(2021, 5, 1), wallet: "w".into(), asset: "eth".into(),
+                quantity: dec!(1), value: dec!(60), source: crate::transaction::IncomeSource::Staking },
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+        ];
+        let p = Portfolio::from_transactions(&txs).unwrap();
+        let ev = p.income_events();
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].asset, "eth");
+        assert_eq!(ev[0].value, dec!(60));
+    }
+
+    #[test]
+    fn valuation_allocations_sum_to_one_and_total_return() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "a".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy { timestamp: ts(2021, 1, 2), wallet: "a".into(), asset: "eth".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+        ];
+        let p = Portfolio::from_transactions(&txs).unwrap();
+        let mut prices = HashMap::new();
+        prices.insert("btc".to_string(), dec!(300));
+        prices.insert("eth".to_string(), dec!(100));
+        let r = p.valuation(CostBasisMethod::Fifo, &prices).unwrap();
+        let alloc_sum: rust_decimal::Decimal = r.assets.iter().map(|a| a.allocation).sum();
+        assert_eq!(alloc_sum, dec!(1));
+        assert_eq!(r.total_value, dec!(400));
+        assert_eq!(r.total_cost, dec!(200));
+        assert_eq!(r.total_unrealized, dec!(200));
+        assert_eq!(r.total_return, dec!(1));
+    }
+
+    #[test]
+    fn valuation_zero_cost_basis_guards_total_return() {
+        let txs = vec![Transaction::GiftReceived {
+            timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+            quantity: dec!(1), donor_basis: dec!(0), fmv_at_receipt: dec!(50),
+            donor_acquired_at: ts(2018, 1, 1),
+        }];
+        let p = Portfolio::from_transactions(&txs).unwrap();
+        let mut prices = HashMap::new();
+        prices.insert("btc".to_string(), dec!(200));
+        let r = p.valuation(CostBasisMethod::Fifo, &prices).unwrap();
+        assert_eq!(r.total_cost, dec!(0));
+        assert_eq!(r.total_return, dec!(0));
+    }
+
+    #[test]
+    fn valuation_empty_portfolio_is_all_zero() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Sell { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(150), fee: dec!(0) },
+        ];
+        let p = Portfolio::from_transactions(&txs).unwrap();
+        let r = p.valuation(CostBasisMethod::Fifo, &HashMap::new()).unwrap();
+        assert!(r.assets.is_empty());
+        assert_eq!(r.total_value, dec!(0));
+        assert_eq!(r.total_return, dec!(0));
+        assert!(r.missing_prices.is_empty());
+    }
+
+    #[test]
+    fn valuation_rejects_specific_id() {
+        let p = Portfolio::from_transactions(&sample()).unwrap();
+        assert!(matches!(
+            p.valuation(CostBasisMethod::SpecificId, &HashMap::new()),
+            Err(crate::error::PortfolioError::SelectionRequired)
+        ));
+    }
 }
