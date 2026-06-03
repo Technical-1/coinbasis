@@ -1,6 +1,6 @@
 [package]
 name = "coinbasis"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.74"
 description = "Comprehensive crypto tax-lot cost-basis accounting (FIFO/LIFO/HIFO/Average/Specific-ID), per-wallet, with capital-gains and income reporting."
