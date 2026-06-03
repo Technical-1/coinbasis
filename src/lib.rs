@@ -27,8 +27,8 @@ pub mod transaction;
 pub use error::PortfolioError;
 pub use method::{CostBasisMethod, LotPick, LotSelection};
 // pub use portfolio::Portfolio;
-// pub use report::{
-//     AssetValuation, CapitalGainsReport, Holding, IncomeEvent, IncomeReport, PortfolioReport,
-//     RealizedGain, Term,
-// };
+pub use report::{
+    AssetValuation, CapitalGainsReport, Holding, IncomeEvent, IncomeReport, PortfolioReport,
+    RealizedGain, Term,
+};
 pub use transaction::{IncomeSource, Transaction};
