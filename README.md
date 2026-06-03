@@ -47,6 +47,10 @@ advice, and makes no guarantee of conformance with any jurisdiction's rules. The
 default model follows current US federal treatment. Provided "as is", without
 warranty.
 
+## Minimum supported Rust version
+
+Rust 1.74.
+
 ## License
 
 MIT OR Apache-2.0.

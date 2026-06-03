@@ -1,6 +1,8 @@
 //! Worked, multi-wallet, multi-method example — the crate's living documentation.
 //! One fixed ledger run through FIFO, LIFO, HIFO, and Average proves they produce
-//! *different* realized gains, and exercises Transfer, Trade, Income, and gifts.
+//! *different* realized gains; a second flow exercises Transfer, Income, and
+//! valuation end-to-end. (Trade and gift handling are covered by the engine unit
+//! tests in `src/engine.rs`.)
 
 use chrono::{TimeZone, Utc};
 use coinbasis::{CostBasisMethod, Portfolio, Transaction};
@@ -61,7 +63,7 @@ fn methods_produce_different_gains_on_the_same_ledger() {
 }
 
 #[test]
-fn comprehensive_flow_with_transfer_trade_income_and_gift() {
+fn comprehensive_flow_with_transfer_income_and_valuation() {
     let txs = vec![
         Transaction::Buy {
             timestamp: ts(2020, 1, 1),
