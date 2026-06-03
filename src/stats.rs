@@ -150,4 +150,32 @@ mod tests {
         // returns all equal -> zero volatility -> None (undefined)
         assert!(sharpe_ratio(&[0.05, 0.05, 0.05], 0.05).is_none());
     }
+
+    #[test]
+    fn returns_skips_zero_divisor_window() {
+        let r = returns_from_values(&[0.0, 10.0, 20.0]);
+        assert_eq!(r.len(), 1); // only the 10 -> 20 window survives
+        approx(r[0], 1.0);
+    }
+
+    #[test]
+    fn returns_empty_for_short_series() {
+        assert!(returns_from_values(&[100.0]).is_empty());
+    }
+
+    #[test]
+    fn cumulative_return_first_value_zero_is_none() {
+        assert!(cumulative_return(&[0.0, 100.0]).is_none());
+    }
+
+    #[test]
+    fn sharpe_with_nonzero_risk_free() {
+        let s = sharpe_ratio(&[0.1, -0.1], 0.05).unwrap();
+        assert!(s < 0.0);
+    }
+
+    #[test]
+    fn max_drawdown_monotonic_increasing_is_zero() {
+        approx(max_drawdown(&[100.0, 110.0, 130.0]).unwrap(), 0.0);
+    }
 }

@@ -1072,4 +1072,166 @@ mod tests {
             crate::error::PortfolioError::InsufficientLots { .. }
         ));
     }
+
+    #[test]
+    fn specific_id_multiple_picks_across_two_acquisitions() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) }, // idx 0
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(300), fee: dec!(0) }, // idx 1
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(2), unit_price: dec!(500), fee: dec!(0) }, // idx 2
+        ];
+        let mut sel: crate::method::LotSelection = std::collections::HashMap::new();
+        sel.insert(2, vec![
+            crate::method::LotPick { acquisition_index: 0, quantity: dec!(1) },
+            crate::method::LotPick { acquisition_index: 1, quantity: dec!(1) },
+        ]);
+        let out = run(&txs, Strategy::Specific(&sel)).unwrap();
+        let total_gain: Decimal = out.realized.iter().map(|r| r.gain).sum();
+        assert_eq!(out.realized.len(), 2);
+        assert_eq!(total_gain, dec!(600));
+    }
+
+    #[test]
+    fn specific_id_partial_lot_pick() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(2), unit_price: dec!(100), fee: dec!(0) }, // idx 0
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) }, // idx 1
+        ];
+        let mut sel: crate::method::LotSelection = std::collections::HashMap::new();
+        sel.insert(1, vec![crate::method::LotPick { acquisition_index: 0, quantity: dec!(1) }]);
+        let out = run(&txs, Strategy::Specific(&sel)).unwrap();
+        assert_eq!(out.realized[0].cost_basis, dec!(100));
+        assert_eq!(out.realized[0].gain, dec!(400));
+        assert_eq!(out.holdings.iter().map(|l| l.quantity).sum::<Decimal>(), dec!(1));
+    }
+
+    #[test]
+    fn specific_id_unknown_acquisition_index_errors() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+        ];
+        let mut sel: crate::method::LotSelection = std::collections::HashMap::new();
+        sel.insert(1, vec![crate::method::LotPick { acquisition_index: 9, quantity: dec!(1) }]);
+        let err = run(&txs, Strategy::Specific(&sel)).unwrap_err();
+        assert!(matches!(err, crate::error::PortfolioError::InvalidLotSelection { acquisition_index: 9 }));
+    }
+
+    #[test]
+    fn specific_id_quantity_mismatch_errors() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(2), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(2), unit_price: dec!(500), fee: dec!(0) },
+        ];
+        let mut sel: crate::method::LotSelection = std::collections::HashMap::new();
+        sel.insert(1, vec![crate::method::LotPick { acquisition_index: 0, quantity: dec!(1) }]);
+        let err = run(&txs, Strategy::Specific(&sel)).unwrap_err();
+        assert!(matches!(err, crate::error::PortfolioError::MissingLotSelection { .. }));
+    }
+
+    #[test]
+    fn trade_acquired_lot_is_specific_id_addressable_by_trade_index() {
+        // The Trade at index 1 both disposes BTC (needs selection for idx 1)
+        // and acquires ETH (its lot is registered under acquisition_index 1).
+        // The Sell at index 2 picks that ETH lot by acquisition_index 1.
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) }, // idx 0
+            Transaction::Trade { timestamp: ts(2021, 6, 1), wallet: "w".into(),
+                from_asset: "btc".into(), from_quantity: dec!(1),
+                to_asset: "eth".into(), to_quantity: dec!(10),
+                value: dec!(500), fee: dec!(0) }, // idx 1
+            Transaction::Sell { timestamp: ts(2021, 7, 1), wallet: "w".into(), asset: "eth".into(),
+                quantity: dec!(10), unit_price: dec!(60), fee: dec!(0) }, // idx 2
+        ];
+        let mut sel: crate::method::LotSelection = std::collections::HashMap::new();
+        // BTC disposal (Trade's from-leg, orig_index=1) picks the BTC lot (acq 0).
+        sel.insert(1, vec![crate::method::LotPick { acquisition_index: 0, quantity: dec!(1) }]);
+        // ETH sell (orig_index=2) picks the ETH lot opened by the Trade (acq 1).
+        sel.insert(2, vec![crate::method::LotPick { acquisition_index: 1, quantity: dec!(10) }]);
+        let out = run(&txs, Strategy::Specific(&sel)).unwrap();
+        let eth = out.realized.iter().find(|r| r.asset == "eth").unwrap();
+        assert_eq!(eth.cost_basis, dec!(500));
+        assert_eq!(eth.gain, dec!(100));
+    }
+
+    #[test]
+    fn transfer_under_average_moves_pooled_basis() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "hot".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy { timestamp: ts(2020, 2, 1), wallet: "hot".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(300), fee: dec!(0) },
+            Transaction::Transfer { timestamp: ts(2020, 6, 1), asset: "btc".into(), quantity: dec!(2),
+                from_wallet: "hot".into(), to_wallet: "cold".into(), fee: dec!(0), fee_value: dec!(0) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Average)).unwrap();
+        let cold: Decimal = out.holdings.iter().filter(|l| l.wallet == "cold").map(|l| l.cost_basis).sum();
+        assert_eq!(cold, dec!(400));
+        assert!(out.holdings.iter().all(|l| l.wallet == "cold"));
+    }
+
+    #[test]
+    fn transfer_under_specific_id_strategy_uses_fifo_fallback() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "hot".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Transfer { timestamp: ts(2020, 6, 1), asset: "btc".into(), quantity: dec!(1),
+                from_wallet: "hot".into(), to_wallet: "cold".into(), fee: dec!(0), fee_value: dec!(0) },
+        ];
+        let sel: crate::method::LotSelection = std::collections::HashMap::new();
+        let out = run(&txs, Strategy::Specific(&sel)).unwrap();
+        let cold: Decimal = out.holdings.iter().filter(|l| l.wallet == "cold").map(|l| l.cost_basis).sum();
+        assert_eq!(cold, dec!(100));
+    }
+
+    #[test]
+    fn gift_received_under_average_pools_at_donor_basis() {
+        let txs = vec![
+            Transaction::GiftReceived { timestamp: ts(2021, 6, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), donor_basis: dec!(100), fmv_at_receipt: dec!(80),
+                donor_acquired_at: ts(2018, 1, 1) },
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(50), fee: dec!(0) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Average)).unwrap();
+        assert_eq!(out.realized[0].gain, dec!(-50));
+        assert_eq!(out.realized[0].term, None);
+    }
+
+    #[test]
+    fn equal_timestamp_events_keep_input_order_under_fifo() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(300), fee: dec!(0) },
+            Transaction::Sell { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
+        assert_eq!(out.realized[0].cost_basis, dec!(100));
+    }
+
+    #[test]
+    fn spend_with_fee_nets_proceeds() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Spend { timestamp: ts(2021, 2, 1), wallet: "w".into(), asset: "btc".into(),
+                quantity: dec!(1), value: dec!(180), fee: dec!(20) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
+        assert_eq!(out.realized[0].proceeds, dec!(160));
+        assert_eq!(out.realized[0].gain, dec!(60));
+    }
 }
