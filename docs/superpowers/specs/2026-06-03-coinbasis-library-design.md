@@ -58,8 +58,8 @@ These assumptions are explicit in the API docs so consumers know the model.
   jurisdiction-specific pooling variants beyond the provided methods (e.g. UK
   Section 104, Canada ACB) — the `Average` method approximates pooling but is
   not claimed to be jurisdiction-exact.
-- No gift/inheritance carryover-basis special rules (gifts received are out of
-  v0.1; see future ideas).
+- No **inheritance** / stepped-up-basis rules (gifts *are* supported — see §4;
+  inherited property is deferred).
 - No multi-fiat handling — all values are in one quote currency (USD by
   convention), treated as an opaque unit; the library does not convert fiat.
 - No configurable tax-year boundaries / fiscal years (calendar UTC only).
@@ -147,18 +147,31 @@ pub enum Transaction {
     Spend { timestamp: DateTime<Utc>, wallet: String, asset: String,
             quantity: Decimal, value: Decimal, fee: Decimal },
 
-    /// Move between your own wallets. Non-taxable; preserves basis + date.
+    /// Move between your own wallets. The moved `quantity` is non-taxable and
+    /// preserves basis + acquisition date. A network `fee` paid in the asset is
+    /// a taxable disposal of `fee` units at `fee_value` (FMV). Total debited
+    /// from `from_wallet` = `quantity` + `fee`; `quantity` arrives in
+    /// `to_wallet`. `fee`/`fee_value` are zero when there is no fee.
     Transfer { timestamp: DateTime<Utc>, asset: String, quantity: Decimal,
-               from_wallet: String, to_wallet: String },
+               from_wallet: String, to_wallet: String,
+               fee: Decimal, fee_value: Decimal },
+
+    /// Crypto given away as a gift. Non-taxable for the giver: lots are removed
+    /// (per method) from `wallet` with NO realized gain; basis leaves the books.
+    GiftSent { timestamp: DateTime<Utc>, wallet: String, asset: String,
+               quantity: Decimal },
+
+    /// Crypto received as a gift. Opens a lot governed by the IRS dual-basis
+    /// rule (see §5): `donor_basis` carries over for gains; the lesser of
+    /// `donor_basis` and `fmv_at_receipt` applies for losses; sales between the
+    /// two realize no gain/loss. Holding period tacks from `donor_acquired_at`.
+    GiftReceived { timestamp: DateTime<Utc>, wallet: String, asset: String,
+                   quantity: Decimal, donor_basis: Decimal,
+                   fmv_at_receipt: Decimal, donor_acquired_at: DateTime<Utc> },
 }
 
 pub enum IncomeSource { Staking, Mining, Airdrop, Interest, Other }
 ```
-
-> **Transfer fees:** v0.1 transfers move the full `quantity` with no fee field.
-> A network fee paid in the moved asset is itself a disposal; modeling it
-> correctly needs an FMV, so it is deferred — callers needing it record a
-> separate `Spend` for the fee. This limitation is documented.
 
 ### Method (`method.rs`)
 
@@ -359,6 +372,24 @@ trackers are wrong.
 lot's cost basis (so a later sale isn't double-taxed on that basis). Income and
 capital gains are reported through separate methods.
 
+### Transfer fees are disposals of the fee units
+A network fee paid in the moved asset is a taxable disposal: the engine consumes
+`fee` units from `from_wallet` (per method) with proceeds = `fee_value`,
+realizing gain on the fee, then migrates `quantity` to `to_wallet`. The moved
+amount itself remains non-taxable.
+
+### Gifts: sent is non-taxable, received uses the full dual-basis rule
+`GiftSent` removes lots (per method) with no realized gain — the giver realizes
+nothing. `GiftReceived` opens a lot carrying both the donor's basis and the FMV
+at receipt, and disposals of a gifted lot apply the IRS dual-basis rule:
+- proceeds **above** donor basis → gain, basis = donor basis;
+- proceeds **below** `min(donor_basis, fmv_at_receipt)` → loss, basis = that min;
+- proceeds **between** the two → **no gain or loss** (`gain == 0`, basis set to
+  proceeds).
+Holding-period `term` tacks from `donor_acquired_at` in all three cases. This is
+the only place a `Lot` carries a second basis figure; non-gift lots are
+unaffected.
+
 ### Method chosen at query time
 `Portfolio` stores the immutable ledger; the method is a query parameter, so a
 consumer can compare methods on the same ledger cheaply (powers the headline
@@ -367,6 +398,9 @@ test).
 ### Average and SpecificId edge semantics
 Under `Average`, per-(asset,wallet) units pool into one running-average lot;
 individual acquisition dates are lost, so `acquired_at`/`term` are `None`.
+Gifted lots pool at their carryover (donor) basis in this mode, and the
+dual-basis loss rule does **not** apply — consistent with `Average` already
+dropping per-lot dates and not being US-permitted for crypto.
 `SpecificId` requires caller-supplied lot selections (errors otherwise).
 
 ### Purity boundary: stats take a caller-supplied series
@@ -411,6 +445,14 @@ crate free of async, I/O, and flaky tests.
 - **Event-model tests:** `Trade` decomposition (disposal + new lot with correct
   basis); `Income` both income-reported and basis-establishing; `Spend` as a
   disposal at FMV.
+- **Transfer-fee tests:** `quantity` arrives non-taxable while `fee` units are
+  disposed at `fee_value`; total debited = `quantity + fee`; `InsufficientTransfer`
+  when `quantity + fee` exceeds the wallet balance.
+- **Gift tests:** `GiftSent` removes lots with zero realized gain; `GiftReceived`
+  dual-basis across all three branches — sale above donor basis (gain), below the
+  lesser-of (loss), and in the dead zone (no gain/no loss); holding-period term
+  tacked from `donor_acquired_at` (e.g. a recently-received gift still long-term
+  because the donor held > 1 year).
 - **Holding-period tests:** boundary at exactly 365 days (short) vs 366 (long).
 - **SpecificId tests:** honored selection; `MissingLotSelection`;
   `InvalidLotSelection`.
@@ -425,8 +467,9 @@ crate free of async, I/O, and flaky tests.
 
 ## 9. Out-of-scope future ideas (not in v0.1)
 
-- Gifts/inheritance received (carryover/stepped-up basis rules).
-- Transfer fees modeled as disposals (needs FMV at transfer).
+- Inheritance / stepped-up basis (distinct from the gift dual-basis rule).
+- Gift-tax annual-exclusion / reporting thresholds (the crate tracks basis, not
+  gift-tax filing obligations).
 - Wash-sale rules (if/when applied to crypto) and jurisdiction-specific pooling
   (UK Section 104, Canada ACB) and configurable fiscal years.
 - CSV / exchange import helpers (likely a separate companion crate).
