@@ -7,6 +7,13 @@ description = "Comprehensive crypto tax-lot cost-basis accounting (FIFO/LIFO/HIF
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Technical-1/coinbasis"
 readme = "README.md"
+include = [
+    "src/**/*.rs",
+    "examples/**/*.rs",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+]
 keywords = ["crypto", "tax", "cost-basis", "portfolio", "accounting"]
 categories = ["finance"]
 
