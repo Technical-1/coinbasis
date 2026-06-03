@@ -1,0 +1,25 @@
+[package]
+name = "coinbasis"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+description = "Comprehensive crypto tax-lot cost-basis accounting (FIFO/LIFO/HIFO/Average/Specific-ID), per-wallet, with capital-gains and income reporting."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Technical-1/coinbasis"
+readme = "README.md"
+keywords = ["crypto", "tax", "cost-basis", "portfolio", "accounting"]
+categories = ["finance"]
+
+[dependencies]
+rust_decimal = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+thiserror = "1"
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+proptest = "1"
+rust_decimal_macros = "1"
+
+[features]
+default = []
+serde = ["dep:serde", "rust_decimal/serde", "chrono/serde"]
