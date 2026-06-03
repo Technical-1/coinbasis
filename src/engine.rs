@@ -252,6 +252,21 @@ impl<'a> Engine<'a> {
         Ok(out)
     }
 
+    /// Remove `quantity` units from a pool without realizing gain (for moves).
+    /// Uses the active method's ordering (Average pools; SpecificId falls back to
+    /// FIFO, since moves are non-taxable and need no caller selection).
+    fn take(&mut self, asset: &str, wallet: &str, quantity: Decimal) -> Result<Vec<Consumed>, PortfolioError> {
+        let method = match self.strategy.method() {
+            CostBasisMethod::Average => CostBasisMethod::Average,
+            _ => CostBasisMethod::Fifo,
+        };
+        if method == CostBasisMethod::Average {
+            self.consume_average(asset, wallet, quantity)
+        } else {
+            self.consume_ordered(method, asset, wallet, quantity)
+        }
+    }
+
     /// Compute (gain, basis_reported) for one consumed slice given allocated
     /// proceeds, applying the gift dual-basis rule when present.
     fn gain_for(c: &Consumed, proceeds: Decimal) -> (Decimal, Decimal) {
@@ -351,7 +366,37 @@ impl<'a> Engine<'a> {
                 let proceeds = *value - *fee;
                 self.dispose(orig_index, asset, wallet, *quantity, proceeds, *timestamp)?;
             }
-            // Transfer handled in Task 11; GiftSent in Task 12.
+            Transaction::Transfer { timestamp, asset, quantity, from_wallet, to_wallet, fee, fee_value } => {
+                let available = self.available(asset, from_wallet);
+                if *quantity + *fee > available {
+                    return Err(PortfolioError::InsufficientTransfer {
+                        asset: asset.clone(),
+                        wallet: from_wallet.clone(),
+                        quantity: *quantity,
+                        fee: *fee,
+                        available,
+                    });
+                }
+                // Fee paid in the asset is a taxable disposal from the source.
+                if *fee > Decimal::ZERO {
+                    self.dispose(orig_index, asset, from_wallet, *fee, *fee_value, *timestamp)?;
+                }
+                // Move the rest, preserving basis, acquisition date, and lot id.
+                let moved = self.take(asset, from_wallet, *quantity)?;
+                for m in moved {
+                    let acquired_at = m.acquired_at.unwrap_or(*timestamp);
+                    self.pool(asset, to_wallet).push(Lot {
+                        asset: asset.clone(),
+                        wallet: to_wallet.clone(),
+                        quantity: m.quantity,
+                        cost_basis: m.cost_basis,
+                        acquired_at,
+                        lot_id: m.lot_id,
+                        gift: m.gift,
+                    });
+                }
+            }
+            // GiftSent handled in Task 12.
             _ => unimplemented!("handled in a later task"),
         }
         Ok(())
@@ -540,5 +585,54 @@ mod tests {
         let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
         assert_eq!(out.realized[0].proceeds, dec!(180));
         assert_eq!(out.realized[0].gain, dec!(80));
+    }
+
+    #[test]
+    fn transfer_preserves_basis_and_acquisition_date() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2020, 1, 1), wallet: "hot".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            // Move to cold wallet in 2020, no fee.
+            Transaction::Transfer { timestamp: ts(2020, 6, 1), asset: "btc".into(), quantity: dec!(1),
+                from_wallet: "hot".into(), to_wallet: "cold".into(), fee: dec!(0), fee_value: dec!(0) },
+            // Sell from cold in 2022; term must be Long, measured from 2020-01-01.
+            Transaction::Sell { timestamp: ts(2022, 1, 1), wallet: "cold".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(500), fee: dec!(0) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
+        assert_eq!(out.realized.len(), 1);
+        assert_eq!(out.realized[0].wallet, "cold");
+        assert_eq!(out.realized[0].cost_basis, dec!(100));
+        assert_eq!(out.realized[0].term, Some(crate::report::Term::Long));
+    }
+
+    #[test]
+    fn transfer_fee_is_a_disposal() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "hot".into(), asset: "eth".into(),
+                quantity: dec!(10), unit_price: dec!(10), fee: dec!(0) }, // basis 100, per-unit 10
+            // Move 9, burn 1 as fee at FMV 15.
+            Transaction::Transfer { timestamp: ts(2021, 2, 1), asset: "eth".into(), quantity: dec!(9),
+                from_wallet: "hot".into(), to_wallet: "cold".into(), fee: dec!(1), fee_value: dec!(15) },
+        ];
+        let out = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap();
+        // Fee disposal: 1 unit, basis 10, proceeds 15, gain 5.
+        assert_eq!(out.realized.len(), 1);
+        assert_eq!(out.realized[0].gain, dec!(5));
+        // 9 units now in cold wallet, basis 90.
+        let cold: Decimal = out.holdings.iter().filter(|l| l.wallet == "cold").map(|l| l.cost_basis).sum();
+        assert_eq!(cold, dec!(90));
+    }
+
+    #[test]
+    fn transfer_insufficient_balance_errors() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "hot".into(), asset: "eth".into(),
+                quantity: dec!(1), unit_price: dec!(10), fee: dec!(0) },
+            Transaction::Transfer { timestamp: ts(2021, 2, 1), asset: "eth".into(), quantity: dec!(1),
+                from_wallet: "hot".into(), to_wallet: "cold".into(), fee: dec!(1), fee_value: dec!(15) },
+        ];
+        let err = run(&txs, Strategy::Auto(CostBasisMethod::Fifo)).unwrap_err();
+        assert!(matches!(err, crate::error::PortfolioError::InsufficientTransfer { .. }));
     }
 }
