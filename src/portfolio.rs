@@ -5,8 +5,10 @@ use crate::engine::{run, Strategy};
 use crate::error::PortfolioError;
 use crate::lot::Lot;
 use crate::method::{CostBasisMethod, LotSelection};
-use crate::report::{Holding, IncomeEvent, RealizedGain};
+use crate::report::{AssetValuation, Holding, IncomeEvent, PortfolioReport, RealizedGain};
 use crate::transaction::Transaction;
+use rust_decimal::Decimal;
+use std::collections::{BTreeMap, HashMap};
 
 /// An immutable ledger you query under a chosen cost-basis method.
 ///
@@ -80,6 +82,74 @@ impl Portfolio {
         }
         Ok(run(&self.txs, Strategy::Auto(method))?.holdings.iter().map(to_holding).collect())
     }
+
+    /// Value current holdings at supplied prices, aggregating per asset across
+    /// wallets. Held assets with no supplied price are excluded from totals and
+    /// listed in `missing_prices`.
+    pub fn valuation(
+        &self,
+        method: CostBasisMethod,
+        prices: &HashMap<String, Decimal>,
+    ) -> Result<PortfolioReport, PortfolioError> {
+        let holdings = self.holdings(method)?;
+
+        // Aggregate quantity + basis per asset (BTreeMap for stable ordering).
+        let mut agg: BTreeMap<String, (Decimal, Decimal)> = BTreeMap::new();
+        for h in &holdings {
+            let e = agg.entry(h.asset.clone()).or_insert((Decimal::ZERO, Decimal::ZERO));
+            e.0 += h.quantity;
+            e.1 += h.cost_basis;
+        }
+
+        let mut missing_prices = Vec::new();
+        let mut priced: Vec<(String, Decimal, Decimal, Decimal)> = Vec::new(); // asset, qty, basis, price
+        for (asset, (qty, basis)) in agg {
+            match prices.get(&asset) {
+                Some(&price) => priced.push((asset, qty, basis, price)),
+                None => missing_prices.push(asset),
+            }
+        }
+
+        let total_value: Decimal = priced.iter().map(|(_, q, _, p)| *q * *p).sum();
+        let total_cost: Decimal = priced.iter().map(|(_, _, b, _)| *b).sum();
+
+        let assets = priced
+            .into_iter()
+            .map(|(asset, quantity, cost_basis, price)| {
+                let market_value = quantity * price;
+                let allocation = if total_value.is_zero() {
+                    Decimal::ZERO
+                } else {
+                    market_value / total_value
+                };
+                AssetValuation {
+                    asset,
+                    quantity,
+                    cost_basis,
+                    price,
+                    market_value,
+                    unrealized: market_value - cost_basis,
+                    allocation,
+                }
+            })
+            .collect();
+
+        let total_unrealized = total_value - total_cost;
+        let total_return = if total_cost.is_zero() {
+            Decimal::ZERO
+        } else {
+            total_unrealized / total_cost
+        };
+
+        Ok(PortfolioReport {
+            assets,
+            total_cost,
+            total_value,
+            total_unrealized,
+            total_return,
+            missing_prices,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -146,5 +216,31 @@ mod tests {
         assert_eq!(h.len(), 1);
         assert_eq!(h[0].quantity, dec!(2));
         assert_eq!(h[0].average_cost, dec!(50));
+    }
+
+    #[test]
+    fn valuation_aggregates_and_flags_missing_prices() {
+        let txs = vec![
+            Transaction::Buy { timestamp: ts(2021, 1, 1), wallet: "a".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(100), fee: dec!(0) },
+            Transaction::Buy { timestamp: ts(2021, 1, 2), wallet: "b".into(), asset: "btc".into(),
+                quantity: dec!(1), unit_price: dec!(140), fee: dec!(0) },
+            Transaction::Buy { timestamp: ts(2021, 1, 3), wallet: "a".into(), asset: "eth".into(),
+                quantity: dec!(1), unit_price: dec!(50), fee: dec!(0) },
+        ];
+        let p = Portfolio::from_transactions(&txs).unwrap();
+        let mut prices = HashMap::new();
+        prices.insert("btc".to_string(), dec!(200));
+        // eth price intentionally omitted.
+        let r = p.valuation(CostBasisMethod::Fifo, &prices).unwrap();
+        // BTC aggregated across wallets: qty 2, basis 240, value 400, unrealized 160.
+        let btc = r.assets.iter().find(|a| a.asset == "btc").unwrap();
+        assert_eq!(btc.quantity, dec!(2));
+        assert_eq!(btc.cost_basis, dec!(240));
+        assert_eq!(btc.market_value, dec!(400));
+        assert_eq!(btc.unrealized, dec!(160));
+        assert_eq!(btc.allocation, dec!(1)); // only priced asset
+        assert_eq!(r.total_value, dec!(400));
+        assert_eq!(r.missing_prices, vec!["eth".to_string()]);
     }
 }
