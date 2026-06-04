@@ -52,6 +52,15 @@ network fee paid in the asset is correctly treated as a small taxable disposal.
 A Form-8949-shaped capital-gains report (with short- and long-term subtotals)
 and an income report, each filtered to a calendar tax year.
 
+### Tax liability estimation
+`TaxConfig` specifies a flat short-term rate and progressive long-term brackets
+(the default ships 2024 US federal rates: 35% flat short-term; 0%/15%/20%
+long-term tiers). Call `Portfolio::tax_estimate` for a one-shot estimate from a
+ledger, or pass an existing `CapitalGainsReport` directly to `tax::estimate`.
+Rows are reclassified against the config's `long_term_threshold_days` at
+estimation time, so the same report can be re-evaluated under a different
+threshold or jurisdiction without re-running the engine.
+
 ## Technical Highlights
 
 ### The gift dual-basis rule in one place
@@ -165,3 +174,13 @@ results as JSON.
 ### How is the holding period decided?
 Each realized lot is classified `Short` or `Long` at a 365-day boundary, a
 documented approximation of the IRS "more than one year" rule.
+
+### How does tax estimation work?
+Pass a `TaxConfig` (or use `TaxConfig::default()` for 2024 US federal rates) to
+`Portfolio::tax_estimate(method, tax_year, &config)`. It builds the
+`CapitalGainsReport` for that year, then runs `tax::estimate` over it —
+re-deriving short/long classification from actual holding days against
+`config.long_term_threshold_days`, applying the flat rate to net short-term
+gains, and applying the progressive long-term brackets. Losses are never taxed.
+The returned `TaxEstimate` breaks out short and long gains, their respective
+taxes, and the total. This is an estimate only — not tax advice.

@@ -20,8 +20,10 @@
 
 ## Testing & Quality
 
-- **Unit & integration tests**: `cargo test` — per-module unit tests plus a
-  worked, multi-method integration test that doubles as living documentation
+- **Unit & integration tests**: `cargo test` — per-module unit tests (including
+  a dedicated suite in `src/tax.rs` covering progressive brackets, threshold
+  reclassification, and the Average-method fallback) plus a worked, multi-method
+  integration test that doubles as living documentation
 - **Property tests**: `proptest` checks conservation invariants (consumed basis
   plus remaining basis equals acquired basis; quantities are conserved) over
   randomly generated ledgers

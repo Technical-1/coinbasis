@@ -19,6 +19,7 @@ flowchart TD
     CONS --> GAIN["gain_for: gift dual-basis + proportional proceeds"]
     GAIN --> OUT["RealizedGain / IncomeEvent / Holding"]
     OUT --> REP["CapitalGainsReport / IncomeReport / PortfolioReport"]
+    REP -->|"tax_estimate / tax::estimate"| TAX["TaxConfig → TaxEstimate (tax.rs)"]
     VS["Caller value series (f64)"] -.-> STATS["stats: volatility, Sharpe, drawdown"]
 ```
 
@@ -65,6 +66,18 @@ flowchart TD
 - **Key responsibilities**: `RealizedGain`, `IncomeEvent`, `Holding`,
   `AssetValuation`, `PortfolioReport`, `CapitalGainsReport`, `IncomeReport`, and
   the `Term` (short/long) holding-period classification.
+
+### Tax estimation
+- **Purpose**: turn a year's `CapitalGainsReport` into an estimated tax
+  liability using a configurable rate schedule.
+- **Location**: `src/tax.rs`
+- **Key responsibilities**: `TaxBracket` and `TaxConfig` (flat short-term rate
+  plus progressive long-term brackets, with a configurable
+  `long_term_threshold_days`); `TaxEstimate` (the computed short/long gains and
+  their taxes); the free function `tax::estimate` and the convenience method
+  `Portfolio::tax_estimate`. Rows are reclassified against the config threshold
+  at estimation time, so the holding-period split used by the tax calculation
+  can differ from the one used to build the report.
 
 ### Pure statistics
 - **Purpose**: portfolio analytics independent of the cost-basis engine.
@@ -158,6 +171,23 @@ flowchart TD
 - **Rationale**: keeping the rule in one place makes it testable in isolation
   and impossible to get inconsistently right across the different disposal
   paths.
+
+### Tax estimation as a read-only layer over `CapitalGainsReport`
+- **Context**: callers want an estimated tax liability, but the holding-period
+  threshold used for rate purposes (a policy choice) is independent of the
+  threshold used to build the `CapitalGainsReport`. The threshold could also
+  differ by jurisdiction.
+- **Decision**: `src/tax.rs` is a pure function (`tax::estimate`) that accepts
+  an existing `CapitalGainsReport` and a `TaxConfig` and reclassifies rows
+  against the config's `long_term_threshold_days` at estimation time. The
+  `Portfolio::tax_estimate` method is a one-shot convenience wrapper that builds
+  the report and immediately estimates.
+- **Rationale**: separating estimation from reporting keeps the core engine
+  untouched and lets the same `CapitalGainsReport` be re-estimated under
+  multiple rate configs without re-running the ledger. The reclassification step
+  means Average-method rows (which carry no `acquired_at`) fall back to their
+  stored `term`, while date-bearing rows are always re-evaluated from actual
+  holding days.
 
 ### Two-stage validation: fields up front, availability at replay
 - **Context**: some invalid inputs are obvious immediately (a negative

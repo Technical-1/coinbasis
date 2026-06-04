@@ -28,10 +28,10 @@ the data.
 
 ```toml
 [dependencies]
-coinbasis = "0.1"
+coinbasis = "0.2"
 
 # with serialization (Serialize/Deserialize on all public types):
-coinbasis = { version = "0.1", features = ["serde"] }
+coinbasis = { version = "0.2", features = ["serde"] }
 ```
 
 ## Quickstart
@@ -140,6 +140,7 @@ src/
 ├── engine.rs      # ledger-replay engine — the core
 ├── portfolio.rs   # public Portfolio facade (all queries)
 ├── report.rs      # output types (gains, income, holdings, reports)
+├── tax.rs         # TaxBracket / TaxConfig / TaxEstimate + tax::estimate
 ├── stats.rs       # pure portfolio statistics over a value series
 └── error.rs       # PortfolioError
 examples/          # runnable usage examples
