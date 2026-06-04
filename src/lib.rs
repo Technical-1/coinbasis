@@ -66,6 +66,7 @@ pub mod method;
 pub mod portfolio;
 pub mod report;
 pub mod stats;
+pub mod tax;
 pub mod transaction;
 
 // Re-exports are added back in the tasks that define each item:
@@ -76,4 +77,5 @@ pub use report::{
     AssetValuation, CapitalGainsReport, Holding, IncomeEvent, IncomeReport, PortfolioReport,
     RealizedGain, Term,
 };
+pub use tax::{TaxBracket, TaxConfig, TaxEstimate};
 pub use transaction::{IncomeSource, Transaction};
