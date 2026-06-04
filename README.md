@@ -70,6 +70,49 @@ Runnable, self-contained examples live in [`examples/`](examples). Run any with
 | `valuation` | Mark-to-market across wallets, with missing-price handling |
 | `portfolio_stats` | Volatility, Sharpe, max drawdown, and returns over a value series |
 
+## Tax estimation
+
+`coinbasis` 0.2.0 adds a `tax` module that turns a year's realized gains into an
+estimated tax liability using a configurable [`TaxConfig`] — a flat short-term
+rate plus progressive long-term brackets.
+
+```rust
+use coinbasis::{CostBasisMethod, Portfolio, TaxConfig, Transaction};
+use chrono::{TimeZone, Utc};
+use rust_decimal::Decimal;
+
+let txs = vec![
+    Transaction::Buy { timestamp: Utc.with_ymd_and_hms(2020,1,1,0,0,0).unwrap(),
+        wallet: "hot".into(), asset: "btc".into(),
+        quantity: Decimal::new(1,0), unit_price: Decimal::new(10000,0), fee: Decimal::new(0,0) },
+    Transaction::Sell { timestamp: Utc.with_ymd_and_hms(2022,6,1,0,0,0).unwrap(),
+        wallet: "hot".into(), asset: "btc".into(),
+        quantity: Decimal::new(1,0), unit_price: Decimal::new(60000,0), fee: Decimal::new(0,0) },
+];
+
+let p = Portfolio::from_transactions(&txs).unwrap();
+let est = p.tax_estimate(CostBasisMethod::Fifo, 2022, &TaxConfig::default()).unwrap();
+println!("long-term gain: {}", est.long_term_gain); // 50000
+println!("total tax:      {}", est.total_tax);
+```
+
+Key points:
+
+- `TaxConfig::default()` ships US 2024 federal rates (35% short-term flat; 0%/15%/20%
+  long-term progressive brackets).
+- The `long_term_threshold_days` field (default 365) controls the short/long
+  reclassification. If the config threshold differs from the method used to build the
+  `CapitalGainsReport`, rows are reclassified against the config threshold — the
+  `term` stored on each row is re-derived from actual holding days.
+- Rows with no `acquired_at` (Average method) fall back to the row's stored `term`.
+- Losses never produce tax; only positive net gains are taxed.
+- Call `coinbasis::tax::estimate(&report, &config)` directly if you already have a
+  `CapitalGainsReport`, or use `Portfolio::tax_estimate` as a one-shot convenience.
+
+See `examples/tax_brackets.rs` for a runnable demo: `cargo run --example tax_brackets`.
+
+**Not tax advice** — see below.
+
 ## Not tax advice
 
 `coinbasis` is a calculation library. It does not file taxes or give legal
