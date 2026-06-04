@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+
+    :root {
+      --bg-0: #0c0904;
+      --amber: #f6a738;
+      --amber-2: #ffcf6b;
+      --rust: #e2683c;
+      --text: #f7efe4;
+      --muted: #b39c83;
+      --green: #5cd6a0;
+    }
+
+    .og-card {
+      width: 1200px; height: 630px;
+      background:
+        radial-gradient(circle at 10% 6%, rgba(246, 167, 56, 0.20), transparent 40%),
+        radial-gradient(circle at 96% 94%, rgba(226, 104, 60, 0.16), transparent 44%),
+        linear-gradient(155deg, #19120a 0%, var(--bg-0) 100%);
+      position: relative; overflow: hidden;
+      font-family: 'Sora', sans-serif;
+    }
+    .og-card::before {
+      content: ""; position: absolute; inset: 0;
+      background-image: radial-gradient(rgba(180, 140, 90, 0.10) 1.2px, transparent 1.2px);
+      background-size: 34px 34px;
+      mask-image: radial-gradient(circle at 38% 38%, #000 50%, transparent 100%);
+    }
+    .glyph {
+      position: absolute; font-family: 'JetBrains Mono', monospace; font-weight: 700;
+      line-height: 1; z-index: 0; pointer-events: none;
+    }
+    .g1 { font-size: 420px; top: -70px; right: -20px; color: rgba(255, 207, 107, 0.06); }
+    .g2 { font-size: 220px; bottom: 18px; left: -10px; color: rgba(226, 104, 60, 0.05); }
+
+    .content { position: relative; z-index: 3; padding: 62px 70px 0; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 12px;
+      font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700;
+      letter-spacing: 3px; color: var(--amber-2); text-transform: uppercase;
+      padding: 10px 18px; border: 1px solid rgba(246, 167, 56, 0.30);
+      border-radius: 999px; background: rgba(246, 167, 56, 0.07);
+    }
+    .pulse { width: 12px; height: 12px; border-radius: 50%; background: var(--amber);
+      box-shadow: 0 0 16px 3px rgba(246, 167, 56, 0.8); }
+    h1 { margin-top: 28px; font-size: 118px; font-weight: 800; letter-spacing: -5px;
+      line-height: 0.95; color: var(--text); }
+    h1 .accent {
+      background: linear-gradient(100deg, var(--amber) 5%, var(--rust) 95%);
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .subhead { margin-top: 22px; font-size: 25px; font-weight: 400; color: var(--muted);
+      max-width: 680px; line-height: 1.4; }
+
+    .stat { position: absolute; top: 74px; right: 70px; z-index: 4; text-align: right; }
+    .stat .label { font-family: 'JetBrains Mono', monospace; font-size: 15px; letter-spacing: 2px;
+      text-transform: uppercase; color: var(--muted); }
+    .stat .value { font-size: 58px; font-weight: 800; letter-spacing: -2px; color: var(--amber-2);
+      line-height: 1; margin-top: 8px; text-shadow: 0 0 30px rgba(246, 167, 56, 0.4); }
+    .stat .delta { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700;
+      color: var(--green); margin-top: 6px; }
+
+    /* Form-8949-style realized-gains ledger band */
+    .ledger {
+      position: absolute; left: 70px; right: 70px; bottom: 108px; z-index: 2;
+      font-family: 'JetBrains Mono', monospace;
+      border: 1px solid rgba(246, 167, 56, 0.22); border-radius: 16px;
+      background: rgba(20, 14, 7, 0.55); backdrop-filter: blur(3px); overflow: hidden;
+    }
+    .ledger .row { display: grid; grid-template-columns: 1.2fr 1.1fr 1.1fr 1fr 0.9fr;
+      padding: 12px 26px; font-size: 19px; }
+    .ledger .head { color: var(--muted); font-size: 14px; letter-spacing: 2px;
+      text-transform: uppercase; border-bottom: 1px solid rgba(246, 167, 56, 0.16); }
+    .ledger .row:not(.head) { border-top: 1px solid rgba(255,255,255,0.04); color: #e9dcc8; }
+    .ledger .asset { color: var(--amber-2); font-weight: 700; }
+    .ledger .gain { color: var(--green); font-weight: 700; text-align: right; }
+    .ledger .term { color: var(--muted); text-align: right; }
+
+    .footer { position: absolute; bottom: 38px; left: 70px; right: 70px; z-index: 5;
+      display: flex; justify-content: space-between; align-items: center; }
+    .tags { display: flex; gap: 12px; }
+    .tag { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 500;
+      padding: 9px 17px; border-radius: 999px; border: 1px solid rgba(179, 156, 131, 0.3);
+      background: rgba(20, 14, 7, 0.55); color: #d8c6ac; }
+    .url { font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 700; color: var(--amber-2); }
+  </style>
+</head>
+<body>
+  <div class="og-card">
+    <div class="glyph g1">&Sigma;</div>
+    <div class="glyph g2">&#8383;</div>
+
+    <div class="content">
+      <div class="eyebrow"><span class="pulse"></span>Rust Crate &bull; crates.io</div>
+      <h1><span class="accent">coinbasis</span></h1>
+      <div class="subhead">Crypto tax-lot cost-basis accounting &mdash; FIFO, LIFO, HIFO, Average &amp; Specific-ID, per wallet.</div>
+    </div>
+
+    <div class="stat">
+      <div class="label">Realized &mdash; Long Term</div>
+      <div class="value">+$12,480</div>
+      <div class="delta">&#9650; capital gain</div>
+    </div>
+
+    <div class="ledger">
+      <div class="row head"><span>Asset</span><span>Acquired</span><span>Disposed</span><span style="text-align:right">Gain</span><span style="text-align:right">Term</span></div>
+      <div class="row"><span class="asset">bitcoin</span><span>2021-01-04</span><span>2024-02-01</span><span class="gain">+8,420.00</span><span class="term">Long</span></div>
+      <div class="row"><span class="asset">ethereum</span><span>2022-06-11</span><span>2024-02-01</span><span class="gain">+3,160.00</span><span class="term">Long</span></div>
+      <div class="row"><span class="asset">solana</span><span>2023-09-22</span><span>2024-02-01</span><span class="gain">+900.00</span><span class="term">Short</span></div>
+    </div>
+
+    <div class="footer">
+      <div class="tags">
+        <span class="tag">Rust</span>
+        <span class="tag">Decimal-exact</span>
+        <span class="tag">Form 8949</span>
+        <span class="tag">no I/O</span>
+      </div>
+      <div class="url">github.com/Technical-1</div>
+    </div>
+  </div>
+</body>
+</html>
