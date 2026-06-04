@@ -516,7 +516,7 @@ impl<'a> Engine<'a> {
 
     fn finish(self) -> EngineOutput {
         let mut holdings: Vec<Lot> = self.pools.into_values().flatten().collect();
-        holdings.sort_by(|a, b| a.lot_id.cmp(&b.lot_id));
+        holdings.sort_by_key(|lot| lot.lot_id);
         EngineOutput {
             realized: self.realized,
             income: self.income,
