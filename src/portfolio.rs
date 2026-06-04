@@ -14,6 +14,7 @@ use crate::report::{
     AssetValuation, CapitalGainsReport, Holding, IncomeEvent, IncomeReport, PortfolioReport,
     RealizedGain, Term,
 };
+use crate::tax::{self, TaxConfig, TaxEstimate};
 use crate::transaction::Transaction;
 use chrono::Datelike;
 use rust_decimal::Decimal;
@@ -313,6 +314,33 @@ impl Portfolio {
         }
         let realized = self.realized_gains(method)?;
         Ok(Self::build_gains_report(realized, tax_year))
+    }
+
+    /// Estimate tax for one tax year under `method` and a [`TaxConfig`].
+    ///
+    /// # Example
+    /// ```
+    /// use coinbasis::{CostBasisMethod, Portfolio, TaxConfig, Transaction};
+    /// use chrono::{TimeZone, Utc};
+    /// use rust_decimal::Decimal;
+    /// let txs = vec![
+    ///     Transaction::Buy { timestamp: Utc.with_ymd_and_hms(2020,1,1,0,0,0).unwrap(), wallet: "w".into(),
+    ///         asset: "btc".into(), quantity: Decimal::new(1,0), unit_price: Decimal::new(100,0), fee: Decimal::new(0,0) },
+    ///     Transaction::Sell { timestamp: Utc.with_ymd_and_hms(2022,1,1,0,0,0).unwrap(), wallet: "w".into(),
+    ///         asset: "btc".into(), quantity: Decimal::new(1,0), unit_price: Decimal::new(500,0), fee: Decimal::new(0,0) },
+    /// ];
+    /// let p = Portfolio::from_transactions(&txs).unwrap();
+    /// let est = p.tax_estimate(CostBasisMethod::Fifo, 2022, &TaxConfig::default()).unwrap();
+    /// assert_eq!(est.long_term_gain, Decimal::new(400, 0));
+    /// ```
+    pub fn tax_estimate(
+        &self,
+        method: CostBasisMethod,
+        tax_year: i32,
+        config: &TaxConfig,
+    ) -> Result<TaxEstimate, PortfolioError> {
+        let report = self.capital_gains_report(method, tax_year)?;
+        Ok(tax::estimate(&report, config))
     }
 
     /// Capital-gains report using a Specific-ID selection.

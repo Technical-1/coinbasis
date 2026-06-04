@@ -9,6 +9,35 @@ use coinbasis::{CostBasisMethod, Portfolio, Transaction};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
+#[test]
+fn portfolio_tax_estimate_matches_module_estimate() {
+    use coinbasis::{tax, TaxConfig};
+    let txs = vec![
+        Transaction::Buy {
+            timestamp: Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(100),
+            fee: dec!(0),
+        },
+        Transaction::Sell {
+            timestamp: Utc.with_ymd_and_hms(2022, 1, 1, 0, 0, 0).unwrap(),
+            wallet: "w".into(),
+            asset: "btc".into(),
+            quantity: dec!(1),
+            unit_price: dec!(500),
+            fee: dec!(0),
+        },
+    ];
+    let p = Portfolio::from_transactions(&txs).unwrap();
+    let cfg = TaxConfig::default();
+    let via = p.tax_estimate(CostBasisMethod::Fifo, 2022, &cfg).unwrap();
+    let report = p.capital_gains_report(CostBasisMethod::Fifo, 2022).unwrap();
+    assert_eq!(via, tax::estimate(&report, &cfg));
+    assert_eq!(via.long_term_gain, dec!(400));
+}
+
 fn ts(y: i32, m: u32, d: u32) -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(y, m, d, 0, 0, 0).unwrap()
 }
